@@ -7,12 +7,19 @@ from fastapi.testclient import TestClient
 from beecrawl import app as app_module
 from beecrawl.models import (
     ProviderPage,
+    SearchMetadata,
+    SearchRequest,
+    SearchResponse,
+    SearchResult,
     WebExtractMapMetadata,
     WebExtractMapResponse,
     WebExtractMetadata,
     WebExtractScrapeRequest,
     WebExtractScrapeResponse,
 )
+from beecrawl.search import providers as search_providers
+from beecrawl.search.providers import SearchProviderResponse, SearchProviderResult
+from beecrawl.search.service import SearchService
 from beecrawl.web_extract.errors import blocked_by_policy, invalid_url, render_timeout
 from beecrawl.web_extract.providers import browser, http_static
 from beecrawl.web_extract.providers.browser import BrowserPool
@@ -41,6 +48,22 @@ class FakeWebExtractService:
             url=request.url,
             links=["https://example.com/"],
             metadata=WebExtractMapMetadata(provider="html_links", count=1),
+        )
+
+
+class FakeSearchService:
+    async def search(self, request):
+        return SearchResponse(
+            requestId="search_test",
+            query=request.query,
+            results=[
+                SearchResult(
+                    url="https://example.com/result",
+                    title="Example result",
+                    description="A result from the search provider",
+                )
+            ],
+            metadata=SearchMetadata(provider="fake", count=1),
         )
 
 
@@ -127,10 +150,12 @@ def test_web_extract_routes_return_contract_shape() -> None:
 
     with (
         patch.object(app_module, "_web_extract_service", FakeWebExtractService()),
+        patch.object(app_module, "_search_service", FakeSearchService()),
         patch.dict("os.environ", {"BEECRAWL_WEB_EXTRACT_API_KEY": "", "WEB_EXTRACT_API_KEY": ""}),
     ):
         scrape_response = client.post("/scrape", json={"url": "https://example.com"})
         map_response = client.post("/map", json={"url": "https://example.com"})
+        search_response = client.post("/search", json={"query": "example query"})
         removed_map_response = client.post("/web-extract/map", json={"url": "https://example.com"})
         removed_response = client.post("/web-extract/scrape", json={"url": "https://example.com"})
         removed_v1_response = client.post("/v1/scrape", json={"url": "https://example.com"})
@@ -146,6 +171,86 @@ def test_web_extract_routes_return_contract_shape() -> None:
     assert map_response.json()["links"] == ["https://example.com/"]
     assert map_response.json()["metadata"]["count"] == 1
     assert removed_map_response.status_code == 404
+
+    assert search_response.status_code == 200
+    assert search_response.json()["requestId"] == "search_test"
+    assert search_response.json()["results"][0]["url"] == "https://example.com/result"
+
+
+def test_search_service_returns_provider_results_without_scraping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_search_web(query: str, *, limit: int, lang: str, country: str):
+        return SearchProviderResponse(
+            provider="fake",
+            results=[
+                SearchProviderResult(
+                    url="https://example.com/result",
+                    title=f"Result for {query}",
+                    description="Provider snippet",
+                )
+            ],
+        )
+
+    class FailWebExtractService:
+        async def scrape(self, request):
+            raise AssertionError("search should not scrape without requested formats")
+
+    monkeypatch.setattr(search_providers, "search_web", fake_search_web)
+
+    response = asyncio.run(
+        SearchService(FailWebExtractService()).search(SearchRequest(query="example query"))
+    )
+
+    assert response.metadata.provider == "fake"
+    assert response.metadata.count == 1
+    assert response.metadata.scraped_count == 0
+    assert response.results[0].markdown is None
+
+
+def test_search_service_scrapes_results_when_formats_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_search_web(query: str, *, limit: int, lang: str, country: str):
+        return SearchProviderResponse(
+            provider="fake",
+            results=[
+                SearchProviderResult(
+                    url="https://example.com/result",
+                    title="Example result",
+                    description="Provider snippet",
+                )
+            ],
+        )
+
+    class FakeScrapeService:
+        async def scrape(self, request):
+            assert request.url == "https://example.com/result"
+            assert request.use_browser == "auto"
+            return WebExtractScrapeResponse(
+                request_id="webext_test",
+                url=request.url,
+                final_url="https://example.com/result",
+                markdown="# Scraped result",
+                metadata=WebExtractMetadata(
+                    title="Scraped result",
+                    status_code=200,
+                    provider="http_static",
+                    rendered=False,
+                ),
+            )
+
+    monkeypatch.setattr(search_providers, "search_web", fake_search_web)
+
+    response = asyncio.run(
+        SearchService(FakeScrapeService()).search(
+            SearchRequest(query="example query", scrapeOptions={"formats": ["markdown"]})
+        )
+    )
+
+    assert response.metadata.scraped_count == 1
+    assert response.results[0].markdown == "# Scraped result"
+    assert response.results[0].metadata["provider"] == "http_static"
 
 
 def test_web_extract_route_requires_key_when_configured() -> None:

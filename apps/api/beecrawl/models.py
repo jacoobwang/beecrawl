@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class Link(BaseModel):
@@ -39,6 +39,48 @@ class WebExtractScrapeRequest(BaseModel):
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     wait_for_ms: int = Field(default=0, ge=0, le=60000)
     use_browser: Literal["auto", "always", "never"] = "auto"
+
+
+class SearchScrapeOptions(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    formats: list[Literal["markdown"]] = Field(default_factory=list)
+    timeout_seconds: int = Field(default=30, ge=1, le=120)
+    wait_for_ms: int = Field(default=0, ge=0, le=60000)
+    use_browser: Literal["auto", "always", "never"] = "auto"
+
+
+class SearchRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    query: str = Field(..., min_length=1)
+    limit: int = Field(default=5, ge=1, le=20)
+    lang: str = Field(default="en", min_length=2, max_length=8)
+    country: str = Field(default="us", min_length=2, max_length=8)
+    scrape_options: SearchScrapeOptions | None = Field(default=None, alias="scrapeOptions")
+
+
+class SearchResult(BaseModel):
+    url: str
+    title: str | None = None
+    description: str | None = None
+    markdown: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    scrape_error: str | None = Field(default=None, alias="scrapeError")
+
+
+class SearchMetadata(BaseModel):
+    provider: str
+    count: int
+    scraped_count: int = Field(default=0, alias="scrapedCount")
+    elapsed_ms: int | None = Field(default=None, alias="elapsedMs")
+
+
+class SearchResponse(BaseModel):
+    request_id: str = Field(alias="requestId")
+    query: str
+    results: list[SearchResult]
+    metadata: SearchMetadata
 
 
 class WebExtractMetadata(BaseModel):

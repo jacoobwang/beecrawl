@@ -9,11 +9,14 @@ from beecrawl.extractor import extract_fields, parse_html
 from beecrawl.models import (
     ExtractRequest,
     ExtractResponse,
+    SearchRequest,
+    SearchResponse,
     WebExtractMapRequest,
     WebExtractMapResponse,
     WebExtractScrapeRequest,
     WebExtractScrapeResponse,
 )
+from beecrawl.search.service import SearchService
 from beecrawl.web_extract.errors import WebExtractError
 from beecrawl.web_extract.service import WebExtractionService
 
@@ -25,6 +28,7 @@ app = FastAPI(
     version="0.1.0",
 )
 _web_extract_service = WebExtractionService()
+_search_service = SearchService(_web_extract_service)
 
 
 def _require_web_extract_auth(
@@ -90,6 +94,19 @@ async def map_web_site(
         return await _web_extract_service.map_site(request)
     except WebExtractError as exc:
         raise HTTPException(status_code=exc.http_status, detail=exc.to_detail()) from exc
+
+
+@app.post(
+    "/search",
+    response_model=SearchResponse,
+    summary="Search the web by keyword",
+    response_description="Search results with optional scraped content",
+)
+async def search(
+    request: SearchRequest,
+    _: None = Depends(_require_web_extract_auth),
+) -> SearchResponse:
+    return await _search_service.search(request)
 
 
 async def _fetch_html(url: str) -> str:

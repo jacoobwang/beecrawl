@@ -48,6 +48,26 @@ Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
 
 Discovers same-site URLs from sitemap first, then page links.
 
+### `POST /search`
+
+```json
+{
+  "query": "thermal interface material suppliers",
+  "limit": 5,
+  "scrapeOptions": {
+    "formats": ["markdown"],
+    "use_browser": "auto"
+  }
+}
+```
+
+Searches the web by keyword and returns result URLs, titles, and descriptions.
+When `scrapeOptions.formats` is non-empty, BeeCrawl scrapes each result URL
+with the existing scrape service and merges Markdown into the search results.
+
+Set `BEECRAWL_SEARXNG_ENDPOINT` to use a self-hosted SearXNG instance. Without
+SearXNG, BeeCrawl falls back to DuckDuckGo HTML search.
+
 ### `POST /extract`
 
 ```json
@@ -103,6 +123,7 @@ apps/*-sdk    SDK packages
 - HTML to markdown-like text cleanup
 - Link and metadata extraction
 - Browser-rendered fallback
+- Keyword search with optional result scraping
 - Async crawl jobs
 - JSON schema extraction
 - Provider plugins
