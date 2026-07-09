@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 import logging
 import time
 import uuid
@@ -116,12 +117,14 @@ class WebExtractionService:
         return page, markdown, metadata
 
     async def _render_page(self, request: WebExtractScrapeRequest) -> ProviderPage:
-        return await asyncio.to_thread(
-            browser.render_page,
+        result = browser.render_page(
             request.url,
             timeout_seconds=request.timeout_seconds,
             wait_for_ms=request.wait_for_ms,
         )
+        if isinstance(result, Awaitable):
+            return await result
+        return result
 
 
 def _page_to_markdown(page: ProviderPage) -> tuple[ProviderPage, str, dict[str, str | None]]:

@@ -15,6 +15,7 @@ from beecrawl.models import (
 )
 from beecrawl.web_extract.errors import blocked_by_policy, invalid_url, render_timeout
 from beecrawl.web_extract.providers import browser, http_static
+from beecrawl.web_extract.providers.browser import BrowserPool
 from beecrawl.web_extract.providers.http_static import discover_links, extract_markdown, normalize_url
 from beecrawl.web_extract.service import WebExtractionService
 
@@ -262,6 +263,95 @@ def test_scrape_always_passes_wait_for_ms_to_browser(monkeypatch: pytest.MonkeyP
 
     assert captured["wait_for_ms"] == 1234
     assert response.metadata.provider == "browser"
+
+
+def test_browser_pool_reuses_browser_and_isolates_contexts() -> None:
+    class FakeResponse:
+        status = 200
+
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "https://example.com/rendered"
+            self.closed = False
+
+        async def goto(self, url: str, *, wait_until: str, timeout: int) -> FakeResponse:
+            self.url = f"{url}/rendered"
+            return FakeResponse()
+
+        async def wait_for_load_state(self, state: str, *, timeout: int) -> None:
+            return None
+
+        async def wait_for_timeout(self, timeout: int) -> None:
+            return None
+
+        async def content(self) -> str:
+            return "<html><body><main><h1>Rendered</h1><p>Content</p></main></body></html>"
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.closed = False
+            self.pages: list[FakePage] = []
+
+        async def route(self, pattern: str, handler) -> None:
+            return None
+
+        async def new_page(self) -> FakePage:
+            page = FakePage()
+            self.pages.append(page)
+            return page
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakeBrowser:
+        def __init__(self) -> None:
+            self.contexts: list[FakeContext] = []
+
+        def is_connected(self) -> bool:
+            return True
+
+        async def new_context(self, **kwargs) -> FakeContext:
+            context = FakeContext()
+            self.contexts.append(context)
+            return context
+
+        async def close(self) -> None:
+            return None
+
+    class FakeChromium:
+        def __init__(self) -> None:
+            self.launch_count = 0
+            self.browser = FakeBrowser()
+
+        async def launch(self, **kwargs) -> FakeBrowser:
+            self.launch_count += 1
+            return self.browser
+
+    class FakePlaywright:
+        def __init__(self) -> None:
+            self.chromium = FakeChromium()
+
+        async def stop(self) -> None:
+            return None
+
+    fake_playwright = FakePlaywright()
+    pool = BrowserPool(max_pages=2, playwright_factory=lambda: fake_playwright)
+
+    async def run_pool() -> tuple[ProviderPage, ProviderPage]:
+        first_page = await pool.render_page("https://example.com", timeout_seconds=30)
+        second_page = await pool.render_page("https://example.com", timeout_seconds=30)
+        return first_page, second_page
+
+    first, second = asyncio.run(run_pool())
+
+    assert fake_playwright.chromium.launch_count == 1
+    assert len(fake_playwright.chromium.browser.contexts) == 2
+    assert all(context.closed for context in fake_playwright.chromium.browser.contexts)
+    assert first.provider == "browser"
+    assert second.rendered is True
 
 
 def test_map_include_merges_sitemap_and_html_links(monkeypatch: pytest.MonkeyPatch) -> None:

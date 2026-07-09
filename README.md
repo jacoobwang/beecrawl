@@ -78,6 +78,10 @@ uv pip install -e ".[browser]"
 .venv/bin/playwright install chromium
 ```
 
+Browser rendering reuses an in-process Chromium instance and creates an
+isolated context per request. Set `BEECRAWL_BROWSER_MAX_PAGES` to control
+concurrent rendered pages; the default is `4`.
+
 Then open:
 
 ```bash
