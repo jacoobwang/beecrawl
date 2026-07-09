@@ -31,5 +31,12 @@ dev = [
 line-length = 100
 target-version = "py311"
 
+[tool.setuptools.package-dir]
+"" = "apps/api"
+
+[tool.setuptools.packages.find]
+where = ["apps/api"]
+
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["apps/api/tests"]
+pythonpath = ["apps/api"]

@@ -86,6 +86,13 @@ curl -X POST http://127.0.0.1:8000/scrape \
   -d '{"url":"https://example.com"}'
 ```
 
+## Repository Layout
+
+```text
+apps/api      API and worker package
+apps/*-sdk    SDK packages
+```
+
 ## Roadmap
 
 - HTTP static scraper
