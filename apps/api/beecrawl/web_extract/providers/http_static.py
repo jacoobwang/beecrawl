@@ -160,24 +160,48 @@ def discover_links(
     search: str | None,
     limit: int,
     include_subdomains: bool,
-    ignore_sitemap: bool,
+    sitemap: str,
+    ignore_query_parameters: bool,
 ) -> tuple[list[str], str]:
     normalized = normalize_url(url)
     links: list[str] = []
-    provider = "html_links"
-    if not ignore_sitemap:
-        links = _discover_sitemap_links(normalized, limit=limit)
-        if links:
-            provider = "sitemap"
-    if not links:
-        links = _discover_html_links(normalized, limit=limit)
-    filtered = _filter_links(normalized, links, search=search, include_subdomains=include_subdomains)
+    providers: list[str] = []
+
+    if sitemap in {"include", "only"}:
+        sitemap_links = _discover_sitemap_links(normalized, limit=limit)
+        if sitemap_links:
+            links.extend(sitemap_links)
+            providers.append("sitemap")
+
+    if sitemap != "only":
+        html_links = _discover_html_links(normalized, limit=limit)
+        if html_links:
+            links.extend(html_links)
+            providers.append("html_links")
+
+    filtered = _filter_links(
+        normalized,
+        links,
+        search=search,
+        include_subdomains=include_subdomains,
+        ignore_query_parameters=ignore_query_parameters,
+    )
+    provider = "+".join(providers) if providers else "html_links"
     return (filtered or [normalized])[:limit], provider
 
 
 def _discover_sitemap_links(url: str, *, limit: int) -> list[str]:
     parsed = urlparse(url)
     sitemap_url = f"{parsed.scheme}://{parsed.netloc}/sitemap.xml"
+    return _fetch_sitemap_links(sitemap_url, limit=limit, seen=set())
+
+
+def _fetch_sitemap_links(sitemap_url: str, *, limit: int, seen: set[str]) -> list[str]:
+    if limit <= 0:
+        return []
+    if sitemap_url in seen or len(seen) > 100:
+        return []
+    seen.add(sitemap_url)
     try:
         with httpx.Client(follow_redirects=True, timeout=10, headers={"User-Agent": USER_AGENT}) as client:
             response = client.get(sitemap_url)
@@ -188,13 +212,74 @@ def _discover_sitemap_links(url: str, *, limit: int) -> list[str]:
         root = ElementTree.fromstring(response.text.encode("utf-8"))
     except ElementTree.ParseError:
         return []
-    links: list[str] = []
-    for elem in root.iter():
-        if elem.tag.endswith("loc") and elem.text:
-            links.append(elem.text.strip())
+    root_tag = _local_xml_name(root.tag)
+    locs = [elem.text.strip() for elem in root.iter() if _local_xml_name(elem.tag) == "loc" and elem.text]
+    if root_tag == "sitemapindex":
+        links: list[str] = []
+        for child_sitemap in locs:
+            links.extend(_fetch_sitemap_links(child_sitemap, limit=limit - len(links), seen=seen))
             if len(links) >= limit:
                 break
-    return links
+        return links[:limit]
+    if root_tag != "urlset":
+        return []
+    return locs[:limit]
+
+
+def _local_xml_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _canonicalize_link(link: str, *, ignore_query_parameters: bool) -> str | None:
+    try:
+        parsed = urlparse(urldefrag(link)[0])
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    path = parsed.path or "/"
+    query = "" if ignore_query_parameters else parsed.query
+    return parsed._replace(fragment="", path=path, query=query).geturl()
+
+
+def _host_key(host: str) -> str:
+    return host.lower().removeprefix("www.")
+
+
+def _same_site(host: str, base_host: str, *, include_subdomains: bool) -> bool:
+    host_key = _host_key(host)
+    base_key = _host_key(base_host)
+    return host_key == base_key or (include_subdomains and host_key.endswith(f".{base_key}"))
+
+
+def _filter_links(
+    base_url: str,
+    links: list[str],
+    *,
+    search: str | None,
+    include_subdomains: bool,
+    ignore_query_parameters: bool,
+) -> list[str]:
+    base_host = urlparse(base_url).hostname or ""
+    needle = (search or "").strip().lower()
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for link in links:
+        canonical = _canonicalize_link(link, ignore_query_parameters=ignore_query_parameters)
+        if canonical is None:
+            continue
+        parsed = urlparse(canonical)
+        host = parsed.hostname or ""
+        if not _same_site(host, base_host, include_subdomains=include_subdomains):
+            continue
+        if needle and needle not in canonical.lower():
+            continue
+        duplicate_key = canonical.replace("://www.", "://")
+        if duplicate_key in seen:
+            continue
+        seen.add(duplicate_key)
+        filtered.append(canonical)
+    return filtered
 
 
 def _discover_html_links(url: str, *, limit: int) -> list[str]:
@@ -214,23 +299,6 @@ def _discover_html_links(url: str, *, limit: int) -> list[str]:
         if len(links) >= limit:
             break
     return links
-
-
-def _filter_links(base_url: str, links: list[str], *, search: str | None, include_subdomains: bool) -> list[str]:
-    base_host = urlparse(base_url).hostname or ""
-    needle = (search or "").strip().lower()
-    filtered: list[str] = []
-    for link in links:
-        parsed = urlparse(link)
-        host = parsed.hostname or ""
-        same_site = host == base_host or (include_subdomains and host.endswith(f".{base_host}"))
-        if not same_site:
-            continue
-        if needle and needle not in link.lower():
-            continue
-        if link not in filtered:
-            filtered.append(link)
-    return filtered
 
 
 def _text(value: object) -> str:

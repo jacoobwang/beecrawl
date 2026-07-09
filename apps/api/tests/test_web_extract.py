@@ -11,7 +11,8 @@ from beecrawl.models import (
     WebExtractScrapeResponse,
 )
 from beecrawl.web_extract.errors import blocked_by_policy, invalid_url
-from beecrawl.web_extract.providers.http_static import extract_markdown, normalize_url
+from beecrawl.web_extract.providers import http_static
+from beecrawl.web_extract.providers.http_static import discover_links, extract_markdown, normalize_url
 
 
 class FakeWebExtractService:
@@ -138,3 +139,74 @@ def test_web_extract_route_requires_key_when_configured() -> None:
 
     assert denied.status_code == 401
     assert allowed.status_code == 200
+
+
+def test_map_include_merges_sitemap_and_html_links(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        http_static,
+        "_discover_sitemap_links",
+        lambda _url, *, limit: [
+            "https://example.com/",
+            "https://example.com/products?ref=sitemap",
+            "https://cdn.example.com/asset",
+        ],
+    )
+    monkeypatch.setattr(
+        http_static,
+        "_discover_html_links",
+        lambda _url, *, limit: [
+            "https://www.example.com/products?ref=nav#section",
+            "https://example.com/about",
+        ],
+    )
+
+    links, provider = discover_links(
+        "https://example.com",
+        search=None,
+        limit=10,
+        include_subdomains=False,
+        sitemap="include",
+        ignore_query_parameters=True,
+    )
+
+    assert provider == "sitemap+html_links"
+    assert links == [
+        "https://example.com/",
+        "https://example.com/products",
+        "https://example.com/about",
+    ]
+
+
+def test_map_sitemap_modes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        http_static,
+        "_discover_sitemap_links",
+        lambda _url, *, limit: ["https://example.com/sitemap-page"],
+    )
+    monkeypatch.setattr(
+        http_static,
+        "_discover_html_links",
+        lambda _url, *, limit: ["https://example.com/html-page"],
+    )
+
+    only_links, only_provider = discover_links(
+        "https://example.com",
+        search=None,
+        limit=10,
+        include_subdomains=False,
+        sitemap="only",
+        ignore_query_parameters=True,
+    )
+    skip_links, skip_provider = discover_links(
+        "https://example.com",
+        search=None,
+        limit=10,
+        include_subdomains=False,
+        sitemap="skip",
+        ignore_query_parameters=True,
+    )
+
+    assert only_links == ["https://example.com/sitemap-page"]
+    assert only_provider == "sitemap"
+    assert skip_links == ["https://example.com/html-page"]
+    assert skip_provider == "html_links"

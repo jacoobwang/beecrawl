@@ -57,7 +57,8 @@ class WebExtractionService:
             search=request.search,
             limit=request.limit,
             include_subdomains=request.include_subdomains,
-            ignore_sitemap=request.ignore_sitemap,
+            sitemap="skip" if request.ignore_sitemap else request.sitemap,
+            ignore_query_parameters=request.ignore_query_parameters,
         )
         elapsed_ms = _elapsed_ms(started)
         logger.info(

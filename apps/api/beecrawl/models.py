@@ -62,7 +62,9 @@ class WebExtractMapRequest(BaseModel):
     search: str | None = None
     limit: int = Field(default=100, ge=1, le=1000)
     include_subdomains: bool = False
+    sitemap: Literal["only", "include", "skip"] = "include"
     ignore_sitemap: bool = False
+    ignore_query_parameters: bool = True
 
 
 class WebExtractMapMetadata(BaseModel):
