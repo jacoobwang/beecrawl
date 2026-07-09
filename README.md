@@ -27,6 +27,36 @@ providers.
 
 Returns page title, markdown-like text, links, and metadata.
 
+### `POST /web-extract/scrape`
+
+Firecrawl-style Markdown extraction endpoint migrated from
+`workus-realtime-dataservice`:
+
+```json
+{
+  "url": "https://example.com",
+  "formats": ["markdown"],
+  "timeout_seconds": 30,
+  "use_browser": "auto"
+}
+```
+
+Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
+`BEECRAWL_WEB_EXTRACT_API_KEY` or `WEB_EXTRACT_API_KEY` to require
+`X-Web-Extract-Api-Key`, `X-Api-Key`, or bearer-token auth.
+
+### `POST /web-extract/map`
+
+```json
+{
+  "url": "https://example.com",
+  "limit": 100,
+  "include_subdomains": false
+}
+```
+
+Discovers same-site URLs from sitemap first, then page links.
+
 ### `POST /v1/extract`
 
 ```json
@@ -49,6 +79,13 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 uvicorn beecrawl.app:app --reload
+```
+
+Browser-rendered fallback is optional:
+
+```bash
+pip install -e ".[browser]"
+playwright install chromium
 ```
 
 Then open:

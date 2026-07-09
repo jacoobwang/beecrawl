@@ -6,6 +6,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from beecrawl.models import Link, ScrapeResponse
+from beecrawl.web_extract.providers.http_static import extract_markdown
 
 EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
 PHONE_RE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
@@ -18,9 +19,12 @@ def parse_html(url: str, html: str) -> ScrapeResponse:
         tag.decompose()
 
     title = _clean_text(soup.title.get_text(" ")) if soup.title else None
-    text = _extract_text(soup)
+    text, markdown_metadata = extract_markdown(html, url)
+    if not text:
+        text = _extract_text(soup)
     links = _extract_links(url, soup)
     metadata = _extract_metadata(soup)
+    metadata.update({key: value for key, value in markdown_metadata.items() if value})
 
     return ScrapeResponse(
         url=url,
