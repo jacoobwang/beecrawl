@@ -47,7 +47,7 @@ Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
 
 Discovers same-site URLs from sitemap first, then page links.
 
-### `POST /v1/extract`
+### `POST /extract`
 
 ```json
 {

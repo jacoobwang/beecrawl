@@ -1,3 +1,8 @@
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+
+from beecrawl import app as app_module
 from beecrawl.extractor import extract_fields, parse_html
 
 
@@ -34,3 +39,28 @@ def test_extract_fields_uses_deterministic_baseline_rules() -> None:
         "email": "sales@example.com",
         "phone": "+1 555 123 4567",
     }
+
+
+def test_extract_route_uses_root_path_and_removes_v1_path() -> None:
+    client = TestClient(app_module.app)
+
+    with patch.object(app_module, "_fetch_html", return_value=HTML):
+        response = client.post(
+            "/extract",
+            json={
+                "url": "https://example.com",
+                "schema": {"company_name": "Company", "email": "Email"},
+            },
+        )
+        removed_response = client.post(
+            "/v1/extract",
+            json={
+                "url": "https://example.com",
+                "schema": {"company_name": "Company", "email": "Email"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["company_name"] == "Example Inc"
+    assert response.json()["data"]["email"] == "sales@example.com"
+    assert removed_response.status_code == 404

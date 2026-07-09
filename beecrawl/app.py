@@ -65,7 +65,7 @@ async def scrape(
         raise HTTPException(status_code=exc.http_status, detail=exc.to_detail()) from exc
 
 
-@app.post("/v1/extract", response_model=ExtractResponse)
+@app.post("/extract", response_model=ExtractResponse)
 async def extract(request: ExtractRequest) -> ExtractResponse:
     html = await _fetch_html(str(request.url))
     scrape_result = parse_html(str(request.url), html)
