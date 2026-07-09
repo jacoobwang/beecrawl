@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 
 import httpx
 from bs4 import BeautifulSoup
+from markdownify import markdownify
 
 from beecrawl.models import ProviderPage
 from beecrawl.web_extract.errors import blocked_by_policy, fetch_failed, invalid_url
@@ -40,38 +41,87 @@ def normalize_url(raw_url: str) -> str:
 
 
 def extract_markdown(html: str, base_url: str) -> tuple[str, dict[str, str | None]]:
+    soup = _clean_html(html, base_url)
+    title = _text(soup.title.string if soup.title else "")
+    language = (soup.html or {}).get("lang") if soup.html else None
+    main = soup.find("main") or soup.find("article") or soup.body or soup
+
+    markdown = markdownify(
+        str(main),
+        heading_style="ATX",
+        bullets="-",
+        strip=["script", "style", "noscript", "svg", "canvas", "iframe"],
+    )
+    markdown = _post_process_markdown(markdown)
+
+    if title and (not markdown.startswith(f"# {title}\n") and markdown.strip() != f"# {title}"):
+        markdown = f"# {title}\n\n{markdown}".strip()
+    return markdown, {"title": title or None, "language": str(language or "") or None}
+
+
+def _clean_html(html: str, base_url: str) -> BeautifulSoup:
     soup = BeautifulSoup(html or "", "html.parser")
     for node in soup(["script", "style", "noscript", "svg", "canvas", "iframe"]):
         node.decompose()
 
-    title = _text(soup.title.string if soup.title else "")
-    language = (soup.html or {}).get("lang") if soup.html else None
     main = soup.find("main") or soup.find("article") or soup.body or soup
-    lines: list[str] = []
-    seen: set[str] = set()
+    if main is not soup:
+        for node in main.find_all(["nav", "header", "footer"]):
+            node.decompose()
 
-    for node in main.find_all(["h1", "h2", "h3", "p", "li", "a"], recursive=True):
-        text = _text(node.get_text(" ", strip=True))
-        if not text or text in seen or len(text) < 2:
+    for tag in soup.find_all(["a", "img"]):
+        attr = "href" if tag.name == "a" else "src"
+        value = str(tag.get(attr) or "").strip()
+        if value and not value.startswith(("mailto:", "tel:", "javascript:", "#")):
+            tag[attr] = urljoin(base_url, value)
+
+    return soup
+
+
+def _post_process_markdown(markdown: str) -> str:
+    markdown = _process_multiline_links(markdown)
+    markdown = re.sub(r"\[Skip to Content\]\(#[^)]+\)", "", markdown, flags=re.IGNORECASE)
+    markdown = re.sub(r"\[Skip to content\]\(#[^)]+\)", "", markdown, flags=re.IGNORECASE)
+
+    lines = [line.rstrip() for line in markdown.splitlines()]
+    processed: list[str] = []
+    blank_count = 0
+    in_fenced_code = False
+
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            in_fenced_code = not in_fenced_code
+
+        if not in_fenced_code and not line.strip():
+            blank_count += 1
+            if blank_count <= 2:
+                processed.append("")
             continue
-        seen.add(text)
-        if node.name in {"h1", "h2"}:
-            lines.append(f"## {text}")
-        elif node.name == "h3":
-            lines.append(f"### {text}")
-        elif node.name == "li":
-            lines.append(f"- {text}")
-        elif node.name == "a":
-            href = node.get("href")
-            if href and len(text) > 8:
-                lines.append(f"[{text}]({urljoin(base_url, str(href))})")
-        else:
-            lines.append(text)
 
-    if title and (not lines or lines[0] != f"# {title}"):
-        lines.insert(0, f"# {title}")
-    markdown = "\n\n".join(lines).strip()
-    return markdown, {"title": title or None, "language": str(language or "") or None}
+        blank_count = 0
+        processed.append(line)
+
+    return "\n".join(processed).strip()
+
+
+def _process_multiline_links(markdown: str) -> str:
+    inside_link_content = False
+    link_open_count = 0
+    output: list[str] = []
+
+    for char in markdown:
+        if char == "[":
+            link_open_count += 1
+        elif char == "]":
+            link_open_count = max(0, link_open_count - 1)
+        inside_link_content = link_open_count > 0
+
+        if inside_link_content and char == "\n":
+            output.append("\\\n")
+        else:
+            output.append(char)
+
+    return "".join(output)
 
 
 def fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:

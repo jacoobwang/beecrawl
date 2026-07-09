@@ -46,11 +46,44 @@ def test_extract_markdown_keeps_title_headings_and_paragraphs() -> None:
     markdown, metadata = extract_markdown(html, "https://example.com")
 
     assert "# Acme" in markdown
-    assert "## About Acme" in markdown
+    assert "# About Acme" in markdown
     assert "We make durable parts." in markdown
     assert "- ISO certified" in markdown
     assert metadata["title"] == "Acme"
     assert metadata["language"] == "en"
+
+
+def test_extract_markdown_preserves_rich_markdown_structures() -> None:
+    html = """
+    <main>
+      <p>This is <strong>bold</strong> and <em>italic</em>.</p>
+      <table><tr><th>Product</th><th>Price</th></tr><tr><td>Widget</td><td>$5</td></tr></table>
+      <pre><code>console.log("hi")</code></pre>
+    </main>
+    """
+    markdown, _ = extract_markdown(html, "https://example.com")
+
+    assert "This is **bold** and *italic*." in markdown
+    assert "| Product | Price |" in markdown
+    assert "| Widget | $5 |" in markdown
+    assert 'console.log("hi")' in markdown
+
+
+def test_extract_markdown_absolutizes_links_and_removes_layout_noise() -> None:
+    html = """
+    <html><body><main>
+      <nav><a href="/skip">Navigation</a></nav>
+      <p><a href="/about">About us</a></p>
+      <p><a href="#content">Skip to Content</a></p>
+      <footer>Copyright</footer>
+    </main></body></html>
+    """
+    markdown, _ = extract_markdown(html, "https://example.com/products/page")
+
+    assert "[About us](https://example.com/about)" in markdown
+    assert "Navigation" not in markdown
+    assert "Copyright" not in markdown
+    assert "Skip to Content" not in markdown
 
 
 def test_normalize_url_policy() -> None:
