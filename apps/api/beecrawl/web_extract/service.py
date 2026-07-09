@@ -101,15 +101,13 @@ class WebExtractionService:
         try:
             browser_page = await self._render_page(request)
         except WebExtractError as exc:
-            if markdown:
-                logger.info(
-                    "web_extract.scrape.browser_fallback_failed",
-                    extra={
-                        **_log_extra(request_id, page.final_url, page.provider, 0),
-                        "error": exc.message,
-                    },
-                )
-                return page, markdown, metadata
+            logger.info(
+                "web_extract.scrape.browser_fallback_failed",
+                extra={
+                    **_log_extra(request_id, page.final_url, page.provider, 0),
+                    "error": exc.message,
+                },
+            )
             raise
 
         _, browser_markdown, browser_metadata = _page_to_markdown(browser_page)

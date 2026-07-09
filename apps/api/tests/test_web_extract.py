@@ -13,7 +13,7 @@ from beecrawl.models import (
     WebExtractScrapeRequest,
     WebExtractScrapeResponse,
 )
-from beecrawl.web_extract.errors import blocked_by_policy, invalid_url
+from beecrawl.web_extract.errors import blocked_by_policy, invalid_url, render_timeout
 from beecrawl.web_extract.providers import browser, http_static
 from beecrawl.web_extract.providers.http_static import discover_links, extract_markdown, normalize_url
 from beecrawl.web_extract.service import WebExtractionService
@@ -206,6 +206,32 @@ def test_scrape_auto_keeps_sufficient_static_content(monkeypatch: pytest.MonkeyP
     assert response.metadata.provider == "http_static"
     assert response.metadata.rendered is False
     assert "Static content." in response.markdown
+
+
+def test_scrape_auto_raises_when_sparse_static_browser_fallback_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html="<html><body><main><p>Loading...</p></main></body></html>",
+            status_code=200,
+            provider="http_static",
+        )
+
+    def fail_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
+        raise render_timeout("Playwright is not installed")
+
+    monkeypatch.setattr(http_static, "fetch_page", fake_fetch_page)
+    monkeypatch.setattr(browser, "render_page", fail_render_page)
+
+    with pytest.raises(type(render_timeout()), match="Playwright is not installed"):
+        asyncio.run(
+            WebExtractionService().scrape(
+                WebExtractScrapeRequest(url="https://example.com", use_browser="auto")
+            )
+        )
 
 
 def test_scrape_always_passes_wait_for_ms_to_browser(monkeypatch: pytest.MonkeyPatch) -> None:
