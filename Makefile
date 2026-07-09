@@ -2,12 +2,13 @@ PYTHON ?= ./.venv/bin/python
 UVICORN ?= ./.venv/bin/uvicorn
 HOST ?= 127.0.0.1
 PORT ?= 8000
+UV ?= uv
 
 .PHONY: install api test lint
 
 install:
-	python3 -m venv .venv
-	$(PYTHON) -m pip install -e ".[dev]"
+	$(UV) venv
+	$(UV) pip install -e ".[dev]"
 
 api:
 	@test -x "$(UVICORN)" || (echo "Missing .venv. Run: make install" && exit 1)

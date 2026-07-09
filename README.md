@@ -65,17 +65,16 @@ page parsing; an LLM-backed extractor can be added behind the same contract.
 ## Quick Start
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+uv venv
+uv pip install -e ".[dev]"
 make api
 ```
 
 Browser-rendered fallback is optional:
 
 ```bash
-pip install -e ".[browser]"
-playwright install chromium
+uv pip install -e ".[browser]"
+.venv/bin/playwright install chromium
 ```
 
 Then open:
