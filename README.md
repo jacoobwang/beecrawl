@@ -17,7 +17,7 @@ providers.
 
 ## API Preview
 
-### `POST /v1/scrape`
+### `POST /scrape`
 
 Firecrawl-style Markdown extraction endpoint migrated from
 `workus-realtime-dataservice`:
@@ -81,7 +81,7 @@ playwright install chromium
 Then open:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/scrape \
+curl -X POST http://127.0.0.1:8000/scrape \
   -H "Content-Type: application/json" \
   -d '{"url":"https://example.com"}'
 ```

@@ -70,16 +70,18 @@ def test_web_extract_routes_return_contract_shape() -> None:
         patch.object(app_module, "_web_extract_service", FakeWebExtractService()),
         patch.dict("os.environ", {"BEECRAWL_WEB_EXTRACT_API_KEY": "", "WEB_EXTRACT_API_KEY": ""}),
     ):
-        scrape_response = client.post("/v1/scrape", json={"url": "https://example.com"})
+        scrape_response = client.post("/scrape", json={"url": "https://example.com"})
         map_response = client.post("/map", json={"url": "https://example.com"})
         removed_map_response = client.post("/web-extract/map", json={"url": "https://example.com"})
         removed_response = client.post("/web-extract/scrape", json={"url": "https://example.com"})
+        removed_v1_response = client.post("/v1/scrape", json={"url": "https://example.com"})
 
     assert scrape_response.status_code == 200
     assert scrape_response.json()["request_id"] == "webext_test"
     assert scrape_response.json()["markdown"] == "# Example"
     assert scrape_response.json()["metadata"]["provider"] == "http_static"
     assert removed_response.status_code == 404
+    assert removed_v1_response.status_code == 404
 
     assert map_response.status_code == 200
     assert map_response.json()["links"] == ["https://example.com/"]
@@ -94,9 +96,9 @@ def test_web_extract_route_requires_key_when_configured() -> None:
         patch.object(app_module, "_web_extract_service", FakeWebExtractService()),
         patch.dict("os.environ", {"BEECRAWL_WEB_EXTRACT_API_KEY": "secret"}),
     ):
-        denied = client.post("/v1/scrape", json={"url": "https://example.com"})
+        denied = client.post("/scrape", json={"url": "https://example.com"})
         allowed = client.post(
-            "/v1/scrape",
+            "/scrape",
             headers={"X-Web-Extract-Api-Key": "secret"},
             json={"url": "https://example.com"},
         )

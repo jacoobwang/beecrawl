@@ -50,7 +50,7 @@ def _require_web_extract_auth(
 
 
 @app.post(
-    "/v1/scrape",
+    "/scrape",
     response_model=WebExtractScrapeResponse,
     summary="Extract Markdown from a URL",
     response_description="Markdown extraction result",
