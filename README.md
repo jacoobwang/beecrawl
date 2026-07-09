@@ -19,16 +19,6 @@ providers.
 
 ### `POST /v1/scrape`
 
-```json
-{
-  "url": "https://example.com"
-}
-```
-
-Returns page title, markdown-like text, links, and metadata.
-
-### `POST /web-extract/scrape`
-
 Firecrawl-style Markdown extraction endpoint migrated from
 `workus-realtime-dataservice`:
 

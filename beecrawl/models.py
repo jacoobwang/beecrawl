@@ -3,10 +3,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 
-class ScrapeRequest(BaseModel):
-    url: HttpUrl
-
-
 class Link(BaseModel):
     text: str
     url: str

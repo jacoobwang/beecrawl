@@ -9,8 +9,6 @@ from beecrawl.extractor import extract_fields, parse_html
 from beecrawl.models import (
     ExtractRequest,
     ExtractResponse,
-    ScrapeRequest,
-    ScrapeResponse,
     WebExtractMapRequest,
     WebExtractMapResponse,
     WebExtractScrapeRequest,
@@ -51,10 +49,20 @@ def _require_web_extract_auth(
         )
 
 
-@app.post("/v1/scrape", response_model=ScrapeResponse)
-async def scrape(request: ScrapeRequest) -> ScrapeResponse:
-    html = await _fetch_html(str(request.url))
-    return parse_html(str(request.url), html)
+@app.post(
+    "/v1/scrape",
+    response_model=WebExtractScrapeResponse,
+    summary="Extract Markdown from a URL",
+    response_description="Markdown extraction result",
+)
+async def scrape(
+    request: WebExtractScrapeRequest,
+    _: None = Depends(_require_web_extract_auth),
+) -> WebExtractScrapeResponse:
+    try:
+        return await _web_extract_service.scrape(request)
+    except WebExtractError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.to_detail()) from exc
 
 
 @app.post("/v1/extract", response_model=ExtractResponse)
@@ -66,22 +74,6 @@ async def extract(request: ExtractRequest) -> ExtractResponse:
         data=extract_fields(scrape_result, request.schema_),
         scrape=scrape_result,
     )
-
-
-@app.post(
-    "/web-extract/scrape",
-    response_model=WebExtractScrapeResponse,
-    summary="Extract Markdown from a URL",
-    response_description="Markdown extraction result",
-)
-async def scrape_web_page(
-    request: WebExtractScrapeRequest,
-    _: None = Depends(_require_web_extract_auth),
-) -> WebExtractScrapeResponse:
-    try:
-        return await _web_extract_service.scrape(request)
-    except WebExtractError as exc:
-        raise HTTPException(status_code=exc.http_status, detail=exc.to_detail()) from exc
 
 
 @app.post(
