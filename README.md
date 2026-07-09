@@ -68,7 +68,7 @@ page parsing; an LLM-backed extractor can be added behind the same contract.
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-uvicorn beecrawl.app:app --reload
+make api
 ```
 
 Browser-rendered fallback is optional:
