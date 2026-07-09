@@ -71,7 +71,8 @@ def test_web_extract_routes_return_contract_shape() -> None:
         patch.dict("os.environ", {"BEECRAWL_WEB_EXTRACT_API_KEY": "", "WEB_EXTRACT_API_KEY": ""}),
     ):
         scrape_response = client.post("/v1/scrape", json={"url": "https://example.com"})
-        map_response = client.post("/web-extract/map", json={"url": "https://example.com"})
+        map_response = client.post("/map", json={"url": "https://example.com"})
+        removed_map_response = client.post("/web-extract/map", json={"url": "https://example.com"})
         removed_response = client.post("/web-extract/scrape", json={"url": "https://example.com"})
 
     assert scrape_response.status_code == 200
@@ -83,6 +84,7 @@ def test_web_extract_routes_return_contract_shape() -> None:
     assert map_response.status_code == 200
     assert map_response.json()["links"] == ["https://example.com/"]
     assert map_response.json()["metadata"]["count"] == 1
+    assert removed_map_response.status_code == 404
 
 
 def test_web_extract_route_requires_key_when_configured() -> None:

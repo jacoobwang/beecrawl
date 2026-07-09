@@ -77,7 +77,7 @@ async def extract(request: ExtractRequest) -> ExtractResponse:
 
 
 @app.post(
-    "/web-extract/map",
+    "/map",
     response_model=WebExtractMapResponse,
     summary="Discover URLs for a site",
     response_description="Discovered site URLs",

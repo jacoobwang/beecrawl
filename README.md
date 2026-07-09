@@ -35,7 +35,7 @@ Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
 `BEECRAWL_WEB_EXTRACT_API_KEY` or `WEB_EXTRACT_API_KEY` to require
 `X-Web-Extract-Api-Key`, `X-Api-Key`, or bearer-token auth.
 
-### `POST /web-extract/map`
+### `POST /map`
 
 ```json
 {
