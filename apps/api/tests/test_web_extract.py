@@ -92,6 +92,26 @@ def test_extract_markdown_absolutizes_links_and_removes_layout_noise() -> None:
     assert "Skip to Content" not in markdown
 
 
+def test_extract_markdown_falls_back_to_body_when_main_is_sparse() -> None:
+    html = f"""
+    <html><head><title>Y Warm</title></head><body>
+      <header>Navigation</header>
+      <main><a href="/report"><h2>Report</h2><p>View More</p></a></main>
+      <section>
+        <h1>Thermal Material</h1>
+        <p>{"Rendered body content. " * 40}</p>
+      </section>
+      <footer>Copyright</footer>
+    </body></html>
+    """
+    markdown, _ = extract_markdown(html, "https://example.com")
+
+    assert "Thermal Material" in markdown
+    assert "Rendered body content." in markdown
+    assert "Navigation" not in markdown
+    assert "Copyright" not in markdown
+
+
 def test_normalize_url_policy() -> None:
     assert normalize_url("example.com/path") == "https://example.com/path"
 

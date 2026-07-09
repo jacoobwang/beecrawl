@@ -16,6 +16,7 @@ USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
+MIN_CONTENT_ROOT_CHARS = 500
 
 
 def normalize_url(raw_url: str) -> str:
@@ -44,10 +45,10 @@ def extract_markdown(html: str, base_url: str) -> tuple[str, dict[str, str | Non
     soup = _clean_html(html, base_url)
     title = _text(soup.title.string if soup.title else "")
     language = (soup.html or {}).get("lang") if soup.html else None
-    main = soup.find("main") or soup.find("article") or soup.body or soup
+    root = _select_content_root(soup)
 
     markdown = markdownify(
-        str(main),
+        str(root),
         heading_style="ATX",
         bullets="-",
         strip=["script", "style", "noscript", "svg", "canvas", "iframe"],
@@ -64,9 +65,9 @@ def _clean_html(html: str, base_url: str) -> BeautifulSoup:
     for node in soup(["script", "style", "noscript", "svg", "canvas", "iframe"]):
         node.decompose()
 
-    main = soup.find("main") or soup.find("article") or soup.body or soup
-    if main is not soup:
-        for node in main.find_all(["nav", "header", "footer"]):
+    body = soup.body or soup
+    if body is not soup:
+        for node in body.find_all(["nav", "header", "footer"]):
             node.decompose()
 
     for tag in soup.find_all(["a", "img"]):
@@ -76,6 +77,22 @@ def _clean_html(html: str, base_url: str) -> BeautifulSoup:
             tag[attr] = urljoin(base_url, value)
 
     return soup
+
+
+def _select_content_root(soup: BeautifulSoup):
+    preferred = soup.find("main") or soup.find("article")
+    body = soup.body or soup
+    if preferred is None:
+        return body
+
+    preferred_length = len(_text(preferred.get_text(" ", strip=True)))
+    body_length = len(_text(body.get_text(" ", strip=True)))
+    if preferred_length < MIN_CONTENT_ROOT_CHARS and body_length >= max(
+        MIN_CONTENT_ROOT_CHARS,
+        preferred_length * 3,
+    ):
+        return body
+    return preferred
 
 
 def _post_process_markdown(markdown: str) -> str:
