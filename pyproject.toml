@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beecrawl"
+version = "0.1.0"
+description = "Open-source infrastructure for crawling, extracting, and structuring web data."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "BeeCrawl contributors" }]
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "fastapi>=0.111.0",
+  "httpx>=0.27.0",
+  "pydantic>=2.7.0",
+  "uvicorn[standard]>=0.30.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+  "ruff>=0.5.0"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
