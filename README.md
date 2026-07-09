@@ -27,6 +27,7 @@ Firecrawl-style Markdown extraction endpoint migrated from
   "url": "https://example.com",
   "formats": ["markdown"],
   "timeout_seconds": 30,
+  "wait_for_ms": 0,
   "use_browser": "auto"
 }
 ```

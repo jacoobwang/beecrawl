@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -5,14 +6,17 @@ from fastapi.testclient import TestClient
 
 from beecrawl import app as app_module
 from beecrawl.models import (
+    ProviderPage,
     WebExtractMapMetadata,
     WebExtractMapResponse,
     WebExtractMetadata,
+    WebExtractScrapeRequest,
     WebExtractScrapeResponse,
 )
 from beecrawl.web_extract.errors import blocked_by_policy, invalid_url
-from beecrawl.web_extract.providers import http_static
+from beecrawl.web_extract.providers import browser, http_static
 from beecrawl.web_extract.providers.http_static import discover_links, extract_markdown, normalize_url
+from beecrawl.web_extract.service import WebExtractionService
 
 
 class FakeWebExtractService:
@@ -139,6 +143,99 @@ def test_web_extract_route_requires_key_when_configured() -> None:
 
     assert denied.status_code == 401
     assert allowed.status_code == 200
+
+
+def test_scrape_auto_falls_back_to_browser_for_short_static_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html="<html><body><main><p>Loading...</p></main><script src='/app.js'></script></body></html>",
+            status_code=200,
+            provider="http_static",
+        )
+
+    def fake_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html=f"<html><body><main><h1>Rendered</h1><p>{'Loaded content. ' * 80}</p></main></body></html>",
+            status_code=200,
+            provider="browser",
+            rendered=True,
+        )
+
+    monkeypatch.setattr(http_static, "fetch_page", fake_fetch_page)
+    monkeypatch.setattr(browser, "render_page", fake_render_page)
+
+    response = asyncio.run(
+        WebExtractionService().scrape(
+            WebExtractScrapeRequest(url="https://example.com", use_browser="auto")
+        )
+    )
+
+    assert response.metadata.provider == "browser"
+    assert response.metadata.rendered is True
+    assert "Loaded content." in response.markdown
+
+
+def test_scrape_auto_keeps_sufficient_static_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html=f"<html><body><main><h1>Static</h1><p>{'Static content. ' * 80}</p></main></body></html>",
+            status_code=200,
+            provider="http_static",
+        )
+
+    def fail_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
+        raise AssertionError("browser fallback should not run")
+
+    monkeypatch.setattr(http_static, "fetch_page", fake_fetch_page)
+    monkeypatch.setattr(browser, "render_page", fail_render_page)
+
+    response = asyncio.run(
+        WebExtractionService().scrape(
+            WebExtractScrapeRequest(url="https://example.com", use_browser="auto")
+        )
+    )
+
+    assert response.metadata.provider == "http_static"
+    assert response.metadata.rendered is False
+    assert "Static content." in response.markdown
+
+
+def test_scrape_always_passes_wait_for_ms_to_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, int] = {}
+
+    def fake_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
+        captured["wait_for_ms"] = wait_for_ms
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html="<html><body><main><p>Rendered page</p></main></body></html>",
+            status_code=200,
+            provider="browser",
+            rendered=True,
+        )
+
+    monkeypatch.setattr(browser, "render_page", fake_render_page)
+
+    response = asyncio.run(
+        WebExtractionService().scrape(
+            WebExtractScrapeRequest(
+                url="https://example.com",
+                use_browser="always",
+                wait_for_ms=1234,
+            )
+        )
+    )
+
+    assert captured["wait_for_ms"] == 1234
+    assert response.metadata.provider == "browser"
 
 
 def test_map_include_merges_sitemap_and_html_links(monkeypatch: pytest.MonkeyPatch) -> None:

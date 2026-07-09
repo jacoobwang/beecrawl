@@ -37,6 +37,7 @@ class WebExtractScrapeRequest(BaseModel):
     formats: list[Literal["markdown"]] = Field(default_factory=lambda: ["markdown"])
     location: WebExtractLocation | None = None
     timeout_seconds: int = Field(default=30, ge=1, le=120)
+    wait_for_ms: int = Field(default=0, ge=0, le=60000)
     use_browser: Literal["auto", "always", "never"] = "auto"
 
 
