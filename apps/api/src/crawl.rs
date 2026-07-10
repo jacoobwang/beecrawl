@@ -7,6 +7,7 @@ use thiserror::Error;
 use tokio::time::sleep;
 use uuid::Uuid;
 
+use crate::cache::CacheStore;
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlError,
     CrawlPagination, CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, WebExtractMapRequest,
@@ -386,15 +387,17 @@ pub async fn run_worker_forever(store: CrawlStore) -> anyhow::Result<()> {
     let worker_id = std::env::var("BEECRAWL_WORKER_ID")
         .unwrap_or_else(|_| format!("worker-{}", Uuid::new_v4()));
     let client = reqwest::Client::new();
+    let cache = CacheStore::from_env();
     let cleanup_interval = Duration::from_secs(crawl_cleanup_interval_seconds());
     let mut next_cleanup = Instant::now();
     loop {
         if Instant::now() >= next_cleanup {
             store.cleanup_expired().await?;
+            cache.cleanup_expired().await;
             next_cleanup = Instant::now() + cleanup_interval;
         }
         match store.claim_task(&worker_id).await? {
-            Some(task) => process_task(&store, &client, task).await?,
+            Some(task) => process_task(&store, &cache, &client, task).await?,
             None => sleep(Duration::from_millis(500)).await,
         }
     }
@@ -402,6 +405,7 @@ pub async fn run_worker_forever(store: CrawlStore) -> anyhow::Result<()> {
 
 async fn process_task(
     store: &CrawlStore,
+    cache: &CacheStore,
     client: &reqwest::Client,
     task: ClaimedTask,
 ) -> Result<(), CrawlStoreError> {
@@ -409,8 +413,9 @@ async fn process_task(
     if options.cancelled {
         return Ok(());
     }
-    let page = web_extract::scrape(
+    let page = web_extract::scrape_with_cache(
         client,
+        cache,
         WebExtractScrapeRequest {
             url: task.url.clone(),
             formats: vec!["markdown".to_string()],

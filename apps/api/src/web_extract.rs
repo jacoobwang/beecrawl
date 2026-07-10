@@ -5,10 +5,12 @@ use std::time::Instant;
 use reqwest::header::{ACCEPT, USER_AGENT};
 use scraper::{Html, Selector};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
+use crate::cache::CacheStore;
 use crate::models::{
     BeeEngineScrapeResponse, ProviderPage, WebExtractMapMetadata, WebExtractMapRequest,
     WebExtractMapResponse, WebExtractMetadata, WebExtractScrapeRequest, WebExtractScrapeResponse,
@@ -57,10 +59,41 @@ pub async fn scrape(
     client: &reqwest::Client,
     request: WebExtractScrapeRequest,
 ) -> Result<WebExtractScrapeResponse, WebExtractError> {
+    scrape_with_cache(client, &CacheStore::from_env(), request).await
+}
+
+pub async fn scrape_with_cache(
+    client: &reqwest::Client,
+    cache: &CacheStore,
+    request: WebExtractScrapeRequest,
+) -> Result<WebExtractScrapeResponse, WebExtractError> {
     let started = Instant::now();
-    let (page, markdown, markdown_meta) = scrape_page(client, &request).await?;
+    let normalized = normalize_url(&request.url)?;
+    let key = cache_key(&normalized, &request);
+    let max_age_seconds = scrape_cache_max_age_seconds();
+    let requires_screenshot = request
+        .formats
+        .iter()
+        .any(|format| format.eq_ignore_ascii_case("screenshot"));
+    let (mut page, markdown, markdown_meta, from_cache) =
+        if let Some(page) = cache.get(&key, max_age_seconds, requires_screenshot).await {
+            let (page, markdown, metadata) = page_to_markdown(page);
+            (page, markdown, metadata, true)
+        } else {
+            let (page, markdown, metadata) = scrape_page(client, &request).await?;
+            (page, markdown, metadata, false)
+        };
     if markdown.trim().is_empty() {
         return Err(WebExtractError::EmptyContent);
+    }
+    page.title = markdown_meta.get("title").cloned().flatten().or(page.title);
+    page.language = markdown_meta
+        .get("language")
+        .cloned()
+        .flatten()
+        .or(page.language);
+    if !from_cache {
+        cache.put(&key, &page).await;
     }
     let wants_screenshot = request
         .formats
@@ -105,18 +138,33 @@ pub async fn scrape(
         links,
         screenshot,
         metadata: WebExtractMetadata {
-            title: markdown_meta.get("title").cloned().flatten().or(page.title),
-            language: markdown_meta
-                .get("language")
-                .cloned()
-                .flatten()
-                .or(page.language),
+            title: page.title,
+            language: page.language,
             status_code: page.status_code,
             provider: page.provider,
             rendered: page.rendered,
             elapsed_ms: Some(started.elapsed().as_millis()),
         },
     })
+}
+
+fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String {
+    let payload = serde_json::to_vec(&json!({
+        "url": normalized_url,
+        "use_browser": &request.use_browser,
+        "wait_for_ms": request.wait_for_ms,
+        "location": &request.location,
+    }))
+    .expect("cache key payload serializes");
+    format!("scrape:{:x}", Sha256::digest(payload))
+}
+
+fn scrape_cache_max_age_seconds() -> u64 {
+    std::env::var("BEECRAWL_SCRAPE_CACHE_MAX_AGE_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(4 * 60 * 60)
 }
 
 pub async fn map_site(

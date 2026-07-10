@@ -15,6 +15,7 @@ use crate::models::{
     ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
 };
 use crate::{
+    cache::CacheStore,
     crawl::{CrawlStore, CrawlStoreError},
     llm, search, web_extract,
 };
@@ -22,6 +23,7 @@ use crate::{
 #[derive(Clone)]
 struct AppState {
     client: reqwest::Client,
+    cache: CacheStore,
     crawls: CrawlStore,
 }
 
@@ -32,6 +34,7 @@ pub fn app() -> Router {
 fn app_with_crawls(crawls: CrawlStore) -> Router {
     let state = AppState {
         client: reqwest::Client::new(),
+        cache: CacheStore::from_env(),
         crawls,
     };
     Router::new()
@@ -117,7 +120,7 @@ async fn scrape(
     Json(request): Json<WebExtractScrapeRequest>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
-    let response = web_extract::scrape(&state.client, request).await?;
+    let response = web_extract::scrape_with_cache(&state.client, &state.cache, request).await?;
     Ok(Json(response).into_response())
 }
 
@@ -147,8 +150,9 @@ async fn extract(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Response, ApiError> {
-    let scrape_response = web_extract::scrape(
+    let scrape_response = web_extract::scrape_with_cache(
         &state.client,
+        &state.cache,
         WebExtractScrapeRequest {
             url: request.url.clone(),
             formats: vec!["markdown".to_string()],

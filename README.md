@@ -45,6 +45,10 @@ or browser-rendered HTML, `links` for deduplicated absolute page links, or
 `BEECRAWL_WEB_EXTRACT_API_KEY` or `WEB_EXTRACT_API_KEY` to require
 `X-Web-Extract-Api-Key`, `X-Api-Key`, or bearer-token auth.
 
+Scrape caching is enabled by default when Postgres is configured. The request
+path is `cache -> browser -> fetch`; cache reads fail open, and formats are
+derived from the cached HTML snapshot.
+
 ### `POST /map`
 
 ```json
@@ -179,7 +183,8 @@ make worker
 ```
 
 Crawl jobs are retained for seven days by default. The worker runs cleanup
-hourly; `make crawl-cleanup` is also available for a scheduled job.
+hourly; scrape cache entries are reused for four hours by default and retained
+for seven days. `make crawl-cleanup` is also available for a scheduled job.
 
 Browser rendering for `use_browser: "auto"` is provided by the Python Bee
 Engine service:

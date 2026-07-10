@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod crawl;
 pub mod llm;
 pub mod models;
