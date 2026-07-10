@@ -271,17 +271,11 @@ def test_web_extract_route_requires_key_when_configured() -> None:
     assert allowed.status_code == 200
 
 
-def test_scrape_auto_falls_back_to_browser_for_short_static_content(
+def test_scrape_auto_prefers_browser_before_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
-        return ProviderPage(
-            url=url,
-            final_url=url,
-            html="<html><body><main><p>Loading...</p></main><script src='/app.js'></script></body></html>",
-            status_code=200,
-            provider="http_static",
-        )
+        raise AssertionError("auto should try browser before fetch")
 
     def fake_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
         return ProviderPage(
@@ -307,7 +301,9 @@ def test_scrape_auto_falls_back_to_browser_for_short_static_content(
     assert "Loaded content." in response.markdown
 
 
-def test_scrape_auto_keeps_sufficient_static_content(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_scrape_auto_falls_back_to_fetch_when_browser_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
         return ProviderPage(
             url=url,
@@ -318,7 +314,7 @@ def test_scrape_auto_keeps_sufficient_static_content(monkeypatch: pytest.MonkeyP
         )
 
     def fail_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
-        raise AssertionError("browser fallback should not run")
+        raise render_timeout("Playwright is not installed")
 
     monkeypatch.setattr(http_static, "fetch_page", fake_fetch_page)
     monkeypatch.setattr(browser, "render_page", fail_render_page)
@@ -334,30 +330,40 @@ def test_scrape_auto_keeps_sufficient_static_content(monkeypatch: pytest.MonkeyP
     assert "Static content." in response.markdown
 
 
-def test_scrape_auto_raises_when_sparse_static_browser_fallback_fails(
+def test_scrape_auto_falls_back_to_fetch_when_browser_returns_empty_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_fetch_page(url: str, *, timeout_seconds: int) -> ProviderPage:
         return ProviderPage(
             url=url,
             final_url=url,
-            html="<html><body><main><p>Loading...</p></main></body></html>",
+            html="<html><body><main><p>Static fallback</p></main></body></html>",
             status_code=200,
             provider="http_static",
         )
 
-    def fail_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
-        raise render_timeout("Playwright is not installed")
+    def empty_render_page(url: str, *, timeout_seconds: int, wait_for_ms: int = 0) -> ProviderPage:
+        return ProviderPage(
+            url=url,
+            final_url=url,
+            html="<html><body><main></main></body></html>",
+            status_code=200,
+            provider="browser",
+            rendered=True,
+        )
 
     monkeypatch.setattr(http_static, "fetch_page", fake_fetch_page)
-    monkeypatch.setattr(browser, "render_page", fail_render_page)
+    monkeypatch.setattr(browser, "render_page", empty_render_page)
 
-    with pytest.raises(type(render_timeout()), match="Playwright is not installed"):
-        asyncio.run(
-            WebExtractionService().scrape(
-                WebExtractScrapeRequest(url="https://example.com", use_browser="auto")
-            )
+    response = asyncio.run(
+        WebExtractionService().scrape(
+            WebExtractScrapeRequest(url="https://example.com", use_browser="auto")
         )
+    )
+
+    assert response.metadata.provider == "http_static"
+    assert response.metadata.rendered is False
+    assert "Static fallback" in response.markdown
 
 
 def test_scrape_always_passes_wait_for_ms_to_browser(monkeypatch: pytest.MonkeyPatch) -> None:

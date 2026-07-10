@@ -91,7 +91,7 @@ uv pip install -e ".[dev]"
 make api
 ```
 
-Browser-rendered fallback is optional:
+Browser rendering for `use_browser: "auto"` is optional:
 
 ```bash
 uv pip install -e ".[browser]"

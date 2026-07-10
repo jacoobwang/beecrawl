@@ -20,7 +20,6 @@ from beecrawl.web_extract.errors import WebExtractError, empty_content
 from beecrawl.web_extract.providers import browser, http_static
 
 logger = logging.getLogger(__name__)
-MIN_AUTO_MARKDOWN_CHARS = 500
 
 
 class WebExtractionService:
@@ -83,38 +82,37 @@ class WebExtractionService:
             page = await self._render_page(request)
             return _page_to_markdown(page)
 
+        if request.use_browser == "never":
+            page = await self._fetch_page(request)
+            return _page_to_markdown(page)
+
         try:
-            page = await asyncio.to_thread(
-                http_static.fetch_page,
-                request.url,
-                timeout_seconds=request.timeout_seconds,
+            page = await self._render_page(request)
+            _, markdown, metadata = _page_to_markdown(page)
+            if markdown.strip():
+                return page, markdown, metadata
+            logger.info(
+                "web_extract.scrape.browser_empty_fallback",
+                extra=_log_extra(request_id, page.final_url, page.provider, 0),
             )
         except WebExtractError as exc:
-            if request.use_browser == "auto" and exc.retryable:
-                page = await self._render_page(request)
-                return _page_to_markdown(page)
-            raise
-
-        _, markdown, metadata = _page_to_markdown(page)
-        if request.use_browser != "auto" or _is_markdown_sufficient(markdown):
-            return page, markdown, metadata
-
-        try:
-            browser_page = await self._render_page(request)
-        except WebExtractError as exc:
             logger.info(
-                "web_extract.scrape.browser_fallback_failed",
+                "web_extract.scrape.browser_fallback_to_fetch",
                 extra={
-                    **_log_extra(request_id, page.final_url, page.provider, 0),
+                    **_log_extra(request_id, request.url, "browser", 0),
                     "error": exc.message,
                 },
             )
-            raise
 
-        _, browser_markdown, browser_metadata = _page_to_markdown(browser_page)
-        if _is_better_markdown(browser_markdown, markdown):
-            return browser_page, browser_markdown, browser_metadata
-        return page, markdown, metadata
+        page = await self._fetch_page(request)
+        return _page_to_markdown(page)
+
+    async def _fetch_page(self, request: WebExtractScrapeRequest) -> ProviderPage:
+        return await asyncio.to_thread(
+            http_static.fetch_page,
+            request.url,
+            timeout_seconds=request.timeout_seconds,
+        )
 
     async def _render_page(self, request: WebExtractScrapeRequest) -> ProviderPage:
         result = browser.render_page(
@@ -130,16 +128,6 @@ class WebExtractionService:
 def _page_to_markdown(page: ProviderPage) -> tuple[ProviderPage, str, dict[str, str | None]]:
     markdown, metadata = http_static.extract_markdown(page.html, page.final_url)
     return page, markdown, metadata
-
-
-def _is_markdown_sufficient(markdown: str) -> bool:
-    return len(markdown.strip()) >= MIN_AUTO_MARKDOWN_CHARS
-
-
-def _is_better_markdown(candidate: str, current: str) -> bool:
-    candidate_length = len(candidate.strip())
-    current_length = len(current.strip())
-    return candidate_length > 0 and candidate_length >= max(MIN_AUTO_MARKDOWN_CHARS, current_length * 2)
 
 
 def _request_id() -> str:

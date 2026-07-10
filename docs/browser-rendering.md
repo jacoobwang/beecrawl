@@ -1,9 +1,9 @@
 # Browser Rendering
 
-BeeCrawl uses browser rendering as a fallback for pages whose static HTTP
-response does not produce enough usable Markdown. The current design follows the
-shape of Firecrawl's Playwright microservice, but keeps the browser inside the
-API process for now.
+BeeCrawl uses Playwright rendering for automatic scrapes, with plain HTTP fetch
+as the fallback path when the browser path is unavailable or produces no
+content. The current design follows the shape of Firecrawl's Playwright
+microservice, but keeps the browser inside the API process for now.
 
 ## Request Flow
 
@@ -22,12 +22,12 @@ API process for now.
 
 - `never`: fetch with plain HTTP only.
 - `always`: render with Playwright only.
-- `auto`: fetch with plain HTTP first, convert to Markdown, and render with
-  Playwright only when the Markdown result is sparse.
+- `auto`: render with Playwright first. If Playwright fails or produces empty
+  Markdown, fall back to plain HTTP fetch.
 
-The sparse-content threshold is currently `500` Markdown characters. If the
-static result is sparse and browser rendering fails, the API returns the browser
-error instead of silently returning the sparse static content.
+There is no Markdown length threshold in the `auto` path. The browser result is
+accepted when it produces non-empty Markdown; otherwise BeeCrawl falls back to
+fetch and lets the normal empty-content handling decide the final response.
 
 ## Browser Pool
 
@@ -84,13 +84,13 @@ and stealth proxy. BeeCrawl does not implement those yet.
 - There is no distributed browser capacity across API processes.
 - There is no proxy, stealth, persistent profile, action execution, screenshot,
   or selector-wait API yet.
-- The sparse Markdown threshold is a simple heuristic, not a full quality
-  scoring model.
+- The automatic path does not yet compare multiple successful engines or score
+  Markdown quality.
 
 ## Future Work
 
 - Add structured fallback metadata, such as `fallback_reason`.
-- Make the sparse Markdown threshold configurable.
+- Add optional quality scoring if multiple successful engines are available.
 - Add optional `check_selector` support for pages that need a specific element.
 - Add explicit browser pool health and shutdown hooks.
 - Move browser rendering to a separate worker or microservice when process
