@@ -61,3 +61,15 @@ The migration hook is disabled by default. Run `make migrate-up` from a
 network location that can reach Aliyun PostgreSQL, or enable the hook only
 after publishing a migration image and configuring `migration.command` and
 `migration.args`.
+
+## GitHub Actions deployment
+
+The `Deploy to ACK` workflow performs a direct Helm deployment and does not
+write to a GitOps repository. Configure a `KUBECONFIG` secret in each GitHub
+Environment used by the workflow. The target namespace must contain
+`beecrawl-database-secret` with `BEECRAWL_DATABASE_URL` pointing to the
+dedicated `beecrawl` database.
+
+Run `Build and publish images` first, then manually dispatch `Deploy to ACK`
+with the resulting immutable `sha-*` image tag. Optional API, LLM, and private
+GHCR pull Secrets remain Kubernetes-managed and are never stored in the chart.

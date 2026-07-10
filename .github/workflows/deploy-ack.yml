@@ -1,0 +1,209 @@
+name: Deploy to ACK
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: GitHub Environment containing the ACK kubeconfig
+        type: choice
+        required: true
+        default: production
+        options:
+          - development
+          - production
+      deploy_ref:
+        description: Git ref to deploy
+        required: true
+        default: main
+      image_tag:
+        description: Immutable image tag; blank uses sha-<deploy_ref commit>
+        required: false
+        default: ""
+      namespace:
+        description: Kubernetes namespace
+        required: true
+        default: beecrawl
+      ingress_host:
+        description: Public hostname; blank keeps ingress disabled
+        required: false
+        default: ""
+      ingress_tls_secret:
+        description: Existing TLS Secret; blank keeps ingress TLS disabled
+        required: false
+        default: ""
+      image_pull_secret:
+        description: Existing GHCR pull Secret; blank for public images
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ack-${{ inputs.environment }}-${{ inputs.namespace }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.deploy_ref }}
+
+      - name: Resolve deployment metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          TAG="${{ inputs.image_tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="sha-$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "owner=$OWNER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.0
+
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.32.0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify images exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          for image in beecrawl-api beecrawl-worker beecrawl-bee-engine; do
+            docker buildx imagetools inspect \
+              "ghcr.io/${{ steps.meta.outputs.owner }}/${image}:${{ steps.meta.outputs.tag }}" \
+              > /dev/null
+          done
+
+      - name: Configure ACK kubeconfig
+        shell: bash
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KUBECONFIG_CONTENT" ]]; then
+            echo "KUBECONFIG is not configured in the selected GitHub Environment"
+            exit 1
+          fi
+          mkdir -p "$HOME/.kube"
+          if ! printf '%s' "$KUBECONFIG_CONTENT" | base64 -d > "$HOME/.kube/config" 2>/dev/null; then
+            printf '%s' "$KUBECONFIG_CONTENT" > "$HOME/.kube/config"
+          fi
+          chmod 600 "$HOME/.kube/config"
+          kubectl cluster-info
+
+      - name: Prepare namespace and verify Secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAMESPACE="${{ inputs.namespace }}"
+          kubectl get namespace "$NAMESPACE" > /dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+          kubectl get secret beecrawl-database-secret -n "$NAMESPACE" > /dev/null
+
+          ENCODED_URL="$(kubectl get secret beecrawl-database-secret -n "$NAMESPACE" \
+            -o jsonpath='{.data.BEECRAWL_DATABASE_URL}')"
+          if [[ -z "$ENCODED_URL" ]]; then
+            echo "beecrawl-database-secret must contain BEECRAWL_DATABASE_URL"
+            exit 1
+          fi
+          printf '%s' "$ENCODED_URL" | base64 -d | python3 -c '
+          import sys; from urllib.parse import urlparse
+          database = urlparse(sys.stdin.read()).path.lstrip("/")
+          sys.exit("BEECRAWL_DATABASE_URL must use the dedicated beecrawl database") if database != "beecrawl" else None
+          '
+
+          kubectl get secret beecrawl-api-secret -n "$NAMESPACE" > /dev/null 2>&1 || \
+            echo "Optional Secret beecrawl-api-secret is not configured"
+          kubectl get secret beecrawl-llm-secret -n "$NAMESPACE" > /dev/null 2>&1 || \
+            echo "Optional Secret beecrawl-llm-secret is not configured"
+
+          PULL_SECRET="${{ inputs.image_pull_secret }}"
+          if [[ -n "$PULL_SECRET" ]]; then
+            kubectl get secret "$PULL_SECRET" -n "$NAMESPACE" > /dev/null
+          fi
+          TLS_SECRET="${{ inputs.ingress_tls_secret }}"
+          if [[ -n "$TLS_SECRET" ]]; then
+            if [[ -z "${{ inputs.ingress_host }}" ]]; then
+              echo "ingress_tls_secret requires ingress_host"
+              exit 1
+            fi
+            kubectl get secret "$TLS_SECRET" -n "$NAMESPACE" > /dev/null
+          fi
+
+      - name: Validate Helm chart
+        run: helm lint infra/charts/beecrawl -f infra/charts/beecrawl/values-production.example.yaml
+
+      - name: Deploy with Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=(
+            upgrade --install beecrawl infra/charts/beecrawl
+            --namespace "${{ inputs.namespace }}"
+            -f infra/charts/beecrawl/values-production.example.yaml
+            --set-string "api.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-api"
+            --set-string "worker.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-worker"
+            --set-string "beeEngine.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-bee-engine"
+            --set-string "global.imageTag=${{ steps.meta.outputs.tag }}"
+            --atomic
+            --wait
+            --timeout 15m
+          )
+
+          if [[ -n "${{ inputs.ingress_host }}" ]]; then
+            ARGS+=(
+              --set api.ingress.enabled=true
+              --set-string "api.ingress.host=${{ inputs.ingress_host }}"
+            )
+          fi
+          if [[ -n "${{ inputs.ingress_tls_secret }}" ]]; then
+            ARGS+=(
+              --set api.ingress.tls.enabled=true
+              --set-string "api.ingress.tls.secretName=${{ inputs.ingress_tls_secret }}"
+            )
+          fi
+          if [[ -n "${{ inputs.image_pull_secret }}" ]]; then
+            ARGS+=(--set-string "global.imagePullSecrets[0].name=${{ inputs.image_pull_secret }}")
+          fi
+
+          helm "${ARGS[@]}"
+
+      - name: Verify deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAMESPACE="${{ inputs.namespace }}"
+          for deployment in beecrawl-api beecrawl-worker beecrawl-bee-engine; do
+            kubectl rollout status "deployment/$deployment" -n "$NAMESPACE" --timeout=5m
+          done
+          kubectl exec deployment/beecrawl-api -n "$NAMESPACE" -- \
+            curl --fail --silent --show-error http://127.0.0.1:8000/health
+          kubectl exec deployment/beecrawl-api -n "$NAMESPACE" -- \
+            curl --fail --silent --show-error http://beecrawl-bee-engine:8020/health
+          helm status beecrawl -n "$NAMESPACE"
+
+      - name: Deployment diagnostics
+        if: failure()
+        run: |
+          kubectl get deployments,pods,services,ingresses -n "${{ inputs.namespace }}" || true
+          kubectl describe deployment beecrawl-api -n "${{ inputs.namespace }}" || true
+          kubectl describe deployment beecrawl-worker -n "${{ inputs.namespace }}" || true
+          kubectl describe deployment beecrawl-bee-engine -n "${{ inputs.namespace }}" || true
