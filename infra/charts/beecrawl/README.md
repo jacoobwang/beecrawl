@@ -6,6 +6,18 @@ This chart deploys the three BeeCrawl runtime components:
 - `beecrawl-worker`: Rust crawl and batch worker
 - `beecrawl-bee-engine`: Python Playwright browser service
 
+Build the images from the repository root. The Rust Dockerfile is shared by
+the API and worker images and selects the binary with `BIN`:
+
+```bash
+docker build -f Dockerfile.rust --build-arg BIN=beecrawl-api \
+  -t ghcr.io/your-org/beecrawl-api:sha-abcdef1 .
+docker build -f Dockerfile.rust --build-arg BIN=worker \
+  -t ghcr.io/your-org/beecrawl-worker:sha-abcdef1 .
+docker build -f Dockerfile.bee-engine \
+  -t ghcr.io/your-org/beecrawl-bee-engine:sha-abcdef1 .
+```
+
 PostgreSQL is not part of this chart. Configure `BEECRAWL_DATABASE_URL` in an
 existing Secret and point it at the dedicated `beecrawl` database on the
 Aliyun PostgreSQL instance. Do not point it at the `workus` database.

@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1.7
+
+# The Playwright base image includes browser system dependencies and a pinned
+# Chromium bundle. Keep the version aligned with pyproject.toml when upgrading.
+FROM mcr.microsoft.com/playwright/python:v1.49.1-noble
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY apps/bee-engine ./apps/bee-engine
+
+RUN pip install --no-cache-dir '.[browser]' \
+    && useradd --create-home --uid 10001 --shell /usr/sbin/nologin beecrawl \
+    && chown -R 10001:10001 /app /home/beecrawl
+
+ENV HOME=/home/beecrawl
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV BEE_ENGINE_MAX_PAGES=4
+
+USER 10001:10001
+EXPOSE 8020
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl --fail http://127.0.0.1:8020/health || exit 1
+
+CMD ["uvicorn", "bee_engine.app:app", "--host", "0.0.0.0", "--port", "8020"]

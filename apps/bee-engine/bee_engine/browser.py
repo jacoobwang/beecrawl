@@ -13,7 +13,7 @@ from bee_engine.models import (
 )
 
 
-DEFAULT_USER_AGENT = "BeeEngine/0.1 (+https://github.com/jacoobwang/beecrawl)"
+DEFAULT_USER_AGENT = "BeeEngine/0.1"
 BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
 BLOCKED_HOST_PARTS = (
     "googletagmanager.com",

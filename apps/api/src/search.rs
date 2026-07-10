@@ -13,7 +13,7 @@ use crate::models::{
 };
 use crate::web_extract;
 
-const DEFAULT_USER_AGENT: &str = "BeeCrawl/0.1 (+https://github.com/jacoobwang/beecrawl)";
+const DEFAULT_USER_AGENT: &str = "BeeCrawl/0.1";
 
 #[derive(Debug, Clone)]
 struct ProviderResult {
