@@ -136,12 +136,14 @@ Start the Rust API:
 make api
 ```
 
-For distributed crawls, start Postgres, configure `BEECRAWL_DATABASE_URL`, and
-run the worker separately. API startup applies the bundled SQL migration.
+For distributed crawls, start Postgres, configure `BEECRAWL_DATABASE_URL`, run
+migrations, then start the API and worker separately. BeeCrawl uses `sqlx-cli`
+for migration creation and execution.
 
 ```bash
 make db-up
 export BEECRAWL_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/beecrawl
+cargo install sqlx-cli --no-default-features --features postgres,rustls
 make migrate-up
 make api
 ```

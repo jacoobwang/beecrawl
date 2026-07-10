@@ -13,8 +13,6 @@ use crate::models::{
 };
 use crate::web_extract::{self, WebExtractError};
 
-static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
-
 #[derive(Clone)]
 pub struct CrawlStore {
     pool: Result<PgPool, String>,
@@ -72,15 +70,6 @@ impl CrawlStore {
         self.pool
             .as_ref()
             .map_err(|error| CrawlStoreError::StorageUnavailable(error.clone()))
-    }
-
-    pub async fn migrate_from_env() -> anyhow::Result<()> {
-        let store = Self::from_env();
-        let Ok(pool) = store.pool() else {
-            return Ok(());
-        };
-        MIGRATOR.run(pool).await?;
-        Ok(())
     }
 
     pub async fn enqueue(

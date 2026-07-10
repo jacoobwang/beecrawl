@@ -22,10 +22,10 @@ worker:
 	$(CARGO) run -p beecrawl-api --bin worker
 
 migration-new:
-	./scripts/new-migration.sh "$(name)"
+	./scripts/sqlx.sh migrate add --source apps/api/migrations "$(name)"
 
 migrate-up:
-	$(CARGO) run -p beecrawl-api --bin migrate
+	./scripts/sqlx.sh migrate run --source apps/api/migrations
 
 bee-engine:
 	$(UV) run --extra browser uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)
