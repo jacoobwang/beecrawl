@@ -21,14 +21,28 @@ Optional API and LLM secrets can contain `BEECRAWL_WEB_EXTRACT_API_KEY`,
 `BEECRAWL_LLM_API_KEY`, `BEECRAWL_LLM_PROVIDER`, `BEECRAWL_LLM_BASE_URL`, and
 `BEECRAWL_LLM_MODEL`.
 
-Install with image tags supplied by CI:
+The default image repositories use `your-org` as a placeholder. Override all
+three repositories and the immutable image tag from CI or a private values
+file:
 
 ```bash
 helm upgrade --install beecrawl infra/charts/beecrawl \
   --namespace beecrawl --create-namespace \
-  -f infra/charts/beecrawl/values-production.yaml \
-  --set api.ingress.host=beecrawl.example.com \
+  -f infra/charts/beecrawl/values-production.example.yaml \
+  --set api.image.repository=your-org/beecrawl-api \
+  --set worker.image.repository=your-org/beecrawl-worker \
+  --set beeEngine.image.repository=your-org/beecrawl-bee-engine \
   --set global.imageTag=sha-abcdef1
+```
+
+Enable public ingress only for an environment that has a real hostname:
+
+```bash
+helm upgrade --install beecrawl infra/charts/beecrawl \
+  -f infra/charts/beecrawl/values-production.example.yaml \
+  --set api.ingress.enabled=true \
+  --set api.ingress.host=api.example.org \
+  --set api.ingress.tls.enabled=true
 ```
 
 The migration hook is disabled by default. Run `make migrate-up` from a

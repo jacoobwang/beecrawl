@@ -1,19 +1,20 @@
 global:
-  imageTag: prod-latest
+  # Replace with an immutable CI tag, for example sha-abcdef1.
+  imageTag: dev
   imagePullPolicy: IfNotPresent
   environment: production
 
 api:
   replicaCount: 2
   ingress:
-    enabled: true
+    enabled: false
     className: nginx
-    host: beecrawl.example.com
+    host: ""
     path: /
     pathType: Prefix
     tls:
-      enabled: true
-      secretName: beecrawl-tls
+      enabled: false
+      secretName: ""
   resources:
     requests:
       cpu: 500m
