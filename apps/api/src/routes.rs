@@ -13,7 +13,10 @@ use crate::models::{
     CrawlEnqueueResponse, CrawlRequest, CrawlStatusResponse, ExtractMetadata, ExtractRequest,
     ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
 };
-use crate::{crawl::CrawlStore, llm, search, web_extract};
+use crate::{
+    crawl::{CrawlStore, CrawlStoreError},
+    llm, search, web_extract,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -22,9 +25,13 @@ struct AppState {
 }
 
 pub fn app() -> Router {
+    app_with_crawls(CrawlStore::from_env())
+}
+
+fn app_with_crawls(crawls: CrawlStore) -> Router {
     let state = AppState {
         client: reqwest::Client::new(),
-        crawls: CrawlStore::default(),
+        crawls,
     };
     Router::new()
         .route("/health", get(health))
@@ -46,7 +53,7 @@ async fn crawl(
     require_auth(&headers)?;
     state
         .crawls
-        .enqueue(state.client.clone(), request)
+        .enqueue(request)
         .await
         .map(Json)
         .map_err(ApiError::from)
@@ -62,6 +69,7 @@ async fn crawl_status(
         .crawls
         .get(&id)
         .await
+        .map_err(ApiError::from)?
         .map(Json)
         .ok_or(ApiError::NotFound)
 }
@@ -76,6 +84,7 @@ async fn cancel_crawl(
         .crawls
         .cancel(&id)
         .await
+        .map_err(ApiError::from)?
         .map(Json)
         .ok_or(ApiError::NotFound)
 }
@@ -239,6 +248,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), ApiError> {
 #[derive(Debug)]
 pub enum ApiError {
     WebExtract(web_extract::WebExtractError),
+    Crawl(CrawlStoreError),
     Llm(llm::LlmError),
     Unauthorized,
     NotFound,
@@ -251,6 +261,12 @@ impl From<web_extract::WebExtractError> for ApiError {
     }
 }
 
+impl From<CrawlStoreError> for ApiError {
+    fn from(value: CrawlStoreError) -> Self {
+        Self::Crawl(value)
+    }
+}
+
 impl From<llm::LlmError> for ApiError {
     fn from(value: llm::LlmError) -> Self {
         Self::Llm(value)
@@ -260,6 +276,17 @@ impl From<llm::LlmError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         match self {
+            Self::Crawl(error) => (
+                error.status(),
+                Json(json!({
+                    "detail": {
+                        "code": error.code(),
+                        "message": error.to_string(),
+                        "retryable": matches!(error, CrawlStoreError::StorageUnavailable(_) | CrawlStoreError::Database(_))
+                    }
+                })),
+            )
+                .into_response(),
             Self::WebExtract(error) => (
                 error.status(),
                 Json(json!({
@@ -343,8 +370,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn crawl_routes_submit_and_cancel_jobs() {
-        let app = app();
+    async fn crawl_routes_require_postgres() {
+        let app = app_with_crawls(CrawlStore::unavailable("Postgres is not configured"));
         let response = app
             .clone()
             .oneshot(
@@ -357,24 +384,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let submitted: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let id = submitted["id"].as_str().unwrap();
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("DELETE")
-                    .uri(format!("/crawl/{id}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let cancelled: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(cancelled["status"], "cancelled");
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["detail"]["code"], "crawl_storage_unavailable");
     }
 }

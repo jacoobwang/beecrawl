@@ -4,13 +4,25 @@ PORT ?= 8000
 BEE_ENGINE_PORT ?= 8020
 UV ?= uv
 
-.PHONY: install api bee-engine playwright-install test lint rust-test rust-lint python-test python-lint
+.PHONY: install db-up db-down api worker migrate bee-engine playwright-install test lint rust-test rust-lint python-test python-lint
 
 install:
 	$(UV) sync --extra dev --extra browser
 
+db-up:
+	docker compose up -d postgres
+
+db-down:
+	docker compose down
+
 api:
 	HOST=$(HOST) PORT=$(PORT) $(CARGO) run -p beecrawl-api
+
+worker:
+	$(CARGO) run -p beecrawl-api --bin worker
+
+migrate:
+	$(CARGO) run -p beecrawl-api --bin migrate
 
 bee-engine:
 	$(UV) run --extra browser uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)

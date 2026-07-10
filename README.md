@@ -66,9 +66,8 @@ Discovers same-site URLs from sitemap first, then page links.
 ```
 
 Starts an asynchronous, same-site crawl. Poll `GET /crawl/{id}` for progress
-and collected pages, or use `DELETE /crawl/{id}` to request cancellation. Crawl
-jobs are currently stored in API process memory; restarting the API removes
-their status and results.
+and collected pages, or use `DELETE /crawl/{id}` to request cancellation. Jobs
+and results are stored in Postgres and consumed by a separate worker process.
 
 ### `POST /search`
 
@@ -135,6 +134,21 @@ Start the Rust API:
 
 ```bash
 make api
+```
+
+For distributed crawls, start Postgres, configure `BEECRAWL_DATABASE_URL`, and
+run the worker separately. API startup applies the bundled SQL migration.
+
+```bash
+make db-up
+export BEECRAWL_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/beecrawl
+make api
+```
+
+In another terminal:
+
+```bash
+make worker
 ```
 
 Browser rendering for `use_browser: "auto"` is provided by the Python Bee

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: beecrawl
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d beecrawl"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - beecrawl-postgres:/var/lib/postgresql/data
+
+volumes:
+  beecrawl-postgres:

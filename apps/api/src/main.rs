@@ -1,9 +1,10 @@
 use std::net::SocketAddr;
 
-use beecrawl_api::app;
+use beecrawl_api::{app, crawl::CrawlStore};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    CrawlStore::migrate_from_env().await?;
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("PORT")
         .ok()

@@ -23,7 +23,7 @@ pub struct WebExtractLocation {
     pub languages: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebExtractScrapeResponse {
     pub request_id: String,
     pub url: String,
@@ -32,7 +32,7 @@ pub struct WebExtractScrapeResponse {
     pub metadata: WebExtractMetadata,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebExtractMetadata {
     pub title: Option<String>,
     pub language: Option<String>,
