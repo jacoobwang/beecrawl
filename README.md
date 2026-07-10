@@ -207,6 +207,18 @@ GET    /scrape/{job_id}
 DELETE /scrape/{job_id}
 ```
 
+### Python SDK
+
+The HTTP-only Python SDK is available under `apps/python-sdk`:
+
+```bash
+uv pip install -e apps/python-sdk
+```
+
+It provides synchronous and asynchronous clients for `/scrape`, `/map`,
+`/search`, `/extract`, `/crawl`, and `/batch/scrape`. The SDK does not run a
+browser locally; browser rendering and workers stay on the BeeCrawl server.
+
 Then open:
 
 ```bash
