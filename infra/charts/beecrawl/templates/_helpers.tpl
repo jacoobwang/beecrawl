@@ -42,3 +42,18 @@ strategy:
     maxSurge: {{ .Values.rollout.maxSurge }}
     maxUnavailable: {{ .Values.rollout.maxUnavailable }}
 {{- end -}}
+
+{{- define "beecrawl.secretChecksum" -}}
+{{- $ctx := index . 0 -}}
+{{- $name := index . 1 -}}
+{{- if $name -}}
+{{- $secret := lookup "v1" "Secret" $ctx.Release.Namespace $name -}}
+{{- if $secret -}}
+{{- toJson $secret.data | sha256sum -}}
+{{- else -}}
+missing
+{{- end -}}
+{{- else -}}
+disabled
+{{- end -}}
+{{- end -}}

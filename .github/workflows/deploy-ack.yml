@@ -31,6 +31,10 @@ on:
         description: Existing TLS Secret; blank keeps ingress TLS disabled
         required: false
         default: ""
+      ingress_cluster_issuer:
+        description: cert-manager ClusterIssuer; blank expects an existing TLS Secret
+        required: false
+        default: ""
       image_pull_secret:
         description: Existing GHCR pull Secret; blank for public images
         required: false
@@ -145,7 +149,9 @@ jobs:
               echo "ingress_tls_secret requires ingress_host"
               exit 1
             fi
-            kubectl get secret "$TLS_SECRET" -n "$NAMESPACE" > /dev/null
+            if [[ -z "${{ inputs.ingress_cluster_issuer }}" ]]; then
+              kubectl get secret "$TLS_SECRET" -n "$NAMESPACE" > /dev/null
+            fi
           fi
 
       - name: Validate Helm chart
@@ -180,6 +186,11 @@ jobs:
             ARGS+=(
               --set api.ingress.tls.enabled=true
               --set-string "api.ingress.tls.secretName=${{ inputs.ingress_tls_secret }}"
+            )
+          fi
+          if [[ -n "${{ inputs.ingress_cluster_issuer }}" ]]; then
+            ARGS+=(
+              --set-json 'api.ingress.annotations={"cert-manager.io/cluster-issuer":"${{ inputs.ingress_cluster_issuer }}","nginx.ingress.kubernetes.io/force-ssl-redirect":"true","nginx.ingress.kubernetes.io/ssl-redirect":"true"}'
             )
           fi
           if [[ -n "${{ inputs.image_pull_secret }}" ]]; then

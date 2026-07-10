@@ -71,6 +71,10 @@ Environment used by the workflow. The target namespace must contain
 `beecrawl-database-secret` with `BEECRAWL_DATABASE_URL` pointing to the
 dedicated `beecrawl` database.
 
+For cert-manager managed TLS, provide `ingress_host`, `ingress_tls_secret`, and
+`ingress_cluster_issuer`. When no issuer is provided, the TLS Secret must
+already exist in the target namespace.
+
 Run `Build and publish images` first, then manually dispatch `Deploy to ACK`
 with the resulting immutable `sha-*` image tag. Optional API, LLM, and private
 GHCR pull Secrets remain Kubernetes-managed and are never stored in the chart.

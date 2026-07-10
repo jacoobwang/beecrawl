@@ -22,6 +22,9 @@ spec:
         app: {{ .Values.api.name }}
         component: api
       annotations:
+        checksum/secret-database: {{ include "beecrawl.secretChecksum" (list . .Values.secretRefs.database) }}
+        checksum/secret-api: {{ include "beecrawl.secretChecksum" (list . .Values.secretRefs.api) }}
+        checksum/secret-llm: {{ include "beecrawl.secretChecksum" (list . .Values.secretRefs.llm) }}
         {{- with .Values.api.annotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

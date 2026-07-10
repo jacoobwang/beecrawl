@@ -22,6 +22,8 @@ spec:
         app: {{ .Values.worker.name }}
         component: worker
       annotations:
+        checksum/secret-database: {{ include "beecrawl.secretChecksum" (list . .Values.secretRefs.database) }}
+        checksum/secret-api: {{ include "beecrawl.secretChecksum" (list . .Values.secretRefs.api) }}
         {{- with .Values.worker.annotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
