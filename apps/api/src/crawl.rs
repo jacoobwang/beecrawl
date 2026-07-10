@@ -8,8 +8,9 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::models::{
-    CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
-    CrawlStatusResponse, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlError,
+    CrawlPagination, CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, WebExtractMapRequest,
+    WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
 
@@ -122,6 +123,61 @@ impl CrawlStore {
         })
     }
 
+    pub async fn enqueue_batch(
+        &self,
+        request: BatchScrapeRequest,
+    ) -> Result<BatchScrapeEnqueueResponse, CrawlStoreError> {
+        let mut urls = Vec::with_capacity(request.urls.len());
+        for raw_url in request.urls {
+            let url = web_extract::normalize_url(&raw_url)
+                .map_err(|error| CrawlStoreError::InvalidRequest(error.to_string()))?;
+            if !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+        if urls.is_empty() {
+            return Err(CrawlStoreError::InvalidRequest(
+                "urls must contain at least one valid URL".to_string(),
+            ));
+        }
+        if urls.len() > 1000 {
+            return Err(CrawlStoreError::InvalidRequest(
+                "batch scrape supports at most 1000 URLs".to_string(),
+            ));
+        }
+
+        let id = Uuid::new_v4();
+        let pool = self.pool()?;
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, now() + make_interval(days => $8))",
+        )
+        .bind(id)
+        .bind(&urls[0])
+        .bind(urls.len() as i64)
+        .bind(request.timeout_seconds as i64)
+        .bind(request.wait_for_ms as i64)
+        .bind(&request.use_browser)
+        .bind(request.max_retries as i32)
+        .bind(crawl_retention_days())
+        .execute(&mut *transaction)
+        .await?;
+        for url in &urls {
+            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status) VALUES ($1, $2, $3, 0, 'queued')")
+                .bind(Uuid::new_v4())
+                .bind(id)
+                .bind(url)
+                .execute(&mut *transaction)
+                .await?;
+        }
+        transaction.commit().await?;
+        Ok(BatchScrapeEnqueueResponse {
+            id: id.to_string(),
+            status: "queued".to_string(),
+            total: urls.len(),
+        })
+    }
+
     pub async fn get(
         &self,
         id: &str,
@@ -226,11 +282,12 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
-            .await?;
+        .await?;
         Ok(CrawlOptions {
+            job_type: row.try_get("job_type")?,
             page_limit: row.try_get::<i64, _>("page_limit")? as usize,
             max_depth: row.try_get::<i32, _>("max_depth")? as usize,
             include_subdomains: row.try_get("include_subdomains")?,
@@ -366,7 +423,7 @@ async fn process_task(
     .await;
     match page {
         Ok(page) => {
-            let links = if task.depth < options.max_depth {
+            let links = if options.job_type == "crawl" && task.depth < options.max_depth {
                 web_extract::map_site(
                     client,
                     WebExtractMapRequest {
@@ -405,6 +462,7 @@ struct ClaimedTask {
 }
 
 struct CrawlOptions {
+    job_type: String,
     page_limit: usize,
     max_depth: usize,
     include_subdomains: bool,
@@ -581,6 +639,47 @@ mod tests {
             .unwrap();
         assert_eq!(second_page.data.len(), 1);
         assert_eq!(second_page.pagination.next, None);
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_batch_scrape_enqueues_unique_urls_without_crawl_expansion() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let batch = store
+            .enqueue_batch(BatchScrapeRequest {
+                urls: vec![
+                    "https://example.com".to_string(),
+                    "https://example.com".to_string(),
+                    "https://example.com/docs".to_string(),
+                ],
+                timeout_seconds: 5,
+                wait_for_ms: 0,
+                use_browser: "never".to_string(),
+                max_retries: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(batch.total, 2);
+        let status = store
+            .get(&batch.id, CrawlStatusQuery::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.status, "queued");
+        assert_eq!(status.total, 2);
+        assert_eq!(status.pagination.total, 0);
+        let row = sqlx::query("SELECT job_type, max_depth FROM crawl_jobs WHERE id = $1")
+            .bind(Uuid::parse_str(&batch.id).unwrap())
+            .fetch_one(store.pool().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            row.try_get::<String, _>("job_type").unwrap(),
+            "batch_scrape"
+        );
+        assert_eq!(row.try_get::<i32, _>("max_depth").unwrap(), 0);
         reset(&store).await;
     }
 

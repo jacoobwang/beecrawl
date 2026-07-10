@@ -10,9 +10,9 @@ use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
-    CrawlEnqueueResponse, CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata,
-    ExtractRequest, ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest,
-    WebExtractScrapeRequest,
+    BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
+    CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse, Link,
+    ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
 };
 use crate::{
     crawl::{CrawlStore, CrawlStoreError},
@@ -39,6 +39,8 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/scrape", post(scrape))
         .route("/crawl", post(crawl))
         .route("/crawl/:id", get(crawl_status).delete(cancel_crawl))
+        .route("/batch/scrape", post(batch_scrape))
+        .route("/batch/scrape/:id", get(crawl_status).delete(cancel_crawl))
         .route("/map", post(map_site))
         .route("/search", post(search_route))
         .route("/extract", post(extract))
@@ -55,6 +57,20 @@ async fn crawl(
     state
         .crawls
         .enqueue(request)
+        .await
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn batch_scrape(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<BatchScrapeRequest>,
+) -> Result<Json<BatchScrapeEnqueueResponse>, ApiError> {
+    require_auth(&headers)?;
+    state
+        .crawls
+        .enqueue_batch(request)
         .await
         .map(Json)
         .map_err(ApiError::from)

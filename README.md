@@ -54,6 +54,25 @@ Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
 
 Discovers same-site URLs from sitemap first, then page links.
 
+### `POST /batch/scrape`
+
+```json
+{
+  "urls": [
+    "https://example.com",
+    "https://example.com/docs"
+  ],
+  "use_browser": "auto",
+  "maxRetries": 2
+}
+```
+
+Creates one asynchronous job for multiple independent URLs. Duplicate URLs
+are removed before enqueueing. Poll `GET /batch/scrape/{id}?offset=0&limit=20`
+for the same paginated result shape as crawl, or use `DELETE
+/batch/scrape/{id}` to cancel it. Batch scrape never follows links from the
+submitted pages.
+
 ### `POST /crawl`
 
 ```json

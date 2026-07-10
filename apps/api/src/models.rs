@@ -97,6 +97,26 @@ pub struct CrawlRequest {
     pub max_retries: usize,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct BatchScrapeRequest {
+    pub urls: Vec<String>,
+    #[serde(default = "default_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default)]
+    pub wait_for_ms: u64,
+    #[serde(default = "default_use_browser")]
+    pub use_browser: String,
+    #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
+    pub max_retries: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BatchScrapeEnqueueResponse {
+    pub id: String,
+    pub status: String,
+    pub total: usize,
+}
+
 #[derive(Debug, Serialize)]
 pub struct CrawlEnqueueResponse {
     pub id: String,
