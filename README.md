@@ -1,11 +1,13 @@
-# BeeCrawl
+# 🐝 BeeCrawl
 
-Open-source infrastructure for crawling, extracting, and structuring web data.
+BeeCrawl is an open-source Firecrawl alternative for teams that want to
+self-host web scraping, crawling, search, and structured extraction.
 
-BeeCrawl is a developer-first web data pipeline. It starts with simple HTTP
-scraping and structured extraction, then leaves clear extension points for
-browser rendering, queue-backed crawls, LLM extraction, and source-specific
-providers.
+**It provides a Firecrawl-style API surface with clean Markdown extraction,
+browser-rendered scraping, URL discovery, keyword search, and deterministic
+schema extraction**. BeeCrawl is designed to stay small and hackable while leaving
+clear extension points for queue-backed crawls, LLM extraction,
+source-specific providers, proxy infrastructure, and hosted deployments.
 
 The API service is implemented in Rust. Browser rendering lives in the Python
 Bee Engine service because Playwright's Python runtime is still the friendlier
