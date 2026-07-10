@@ -570,6 +570,8 @@ mod tests {
             markdown: "# Example".to_string(),
             html: None,
             raw_html: None,
+            links: None,
+            screenshot: None,
             metadata: WebExtractMetadata {
                 title: Some("Example".to_string()),
                 language: Some("en".to_string()),

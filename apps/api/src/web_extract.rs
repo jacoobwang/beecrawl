@@ -62,6 +62,15 @@ pub async fn scrape(
     if markdown.trim().is_empty() {
         return Err(WebExtractError::EmptyContent);
     }
+    let wants_screenshot = request
+        .formats
+        .iter()
+        .any(|format| format.eq_ignore_ascii_case("screenshot"));
+    if wants_screenshot && page.screenshot.is_none() {
+        return Err(WebExtractError::RenderFailed(
+            "screenshot requires browser rendering".to_string(),
+        ));
+    }
     let html = request
         .formats
         .iter()
@@ -74,6 +83,18 @@ pub async fn scrape(
             format.eq_ignore_ascii_case("rawHtml") || format.eq_ignore_ascii_case("raw_html")
         })
         .then(|| page.html.clone());
+    let links = request
+        .formats
+        .iter()
+        .any(|format| format.eq_ignore_ascii_case("links"))
+        .then(|| extract_links(&page.html, &page.final_url));
+    let screenshot = page.screenshot.map(|image| {
+        if image.starts_with("data:") {
+            image
+        } else {
+            format!("data:image/png;base64,{image}")
+        }
+    });
     Ok(WebExtractScrapeResponse {
         request_id: request_id("webext"),
         url: page.url,
@@ -81,6 +102,8 @@ pub async fn scrape(
         markdown,
         html,
         raw_html,
+        links,
+        screenshot,
         metadata: WebExtractMetadata {
             title: markdown_meta.get("title").cloned().flatten().or(page.title),
             language: markdown_meta
@@ -196,6 +219,7 @@ pub async fn fetch_page(
         language: metadata.get("language").cloned().flatten(),
         provider: "http_static".to_string(),
         rendered: false,
+        screenshot: None,
     })
 }
 
@@ -215,6 +239,11 @@ async fn render_page(
             "wait": request.wait_for_ms,
             "blockMedia": true,
             "geolocation": request.location,
+            "actions": if request.formats.iter().any(|format| format.eq_ignore_ascii_case("screenshot")) {
+                json!([{ "type": "screenshot", "fullPage": true }])
+            } else {
+                json!([])
+            },
         }))
         .timeout(std::time::Duration::from_secs(request.timeout_seconds + 5))
         .send()
@@ -244,6 +273,7 @@ async fn render_page(
         language: None,
         provider: "bee_engine".to_string(),
         rendered: true,
+        screenshot: rendered.screenshots.into_iter().next(),
     })
 }
 
@@ -279,6 +309,35 @@ pub fn extract_markdown(html: &str, base_url: &str) -> (String, HashMap<String, 
 pub fn extract_content_html(html: &str) -> String {
     let document = Html::parse_document(html);
     select_root_html(&document).unwrap_or_else(|| html.to_string())
+}
+
+pub fn extract_links(html: &str, base_url: &str) -> Vec<String> {
+    let document = Html::parse_document(html);
+    let root_html = select_root_html(&document).unwrap_or_else(|| html.to_string());
+    let root_doc = Html::parse_fragment(&root_html);
+    let selector = Selector::parse("a").expect("valid anchor selector");
+    let base = Url::parse(base_url).ok();
+    let mut seen = HashSet::new();
+    let mut links = Vec::new();
+    for node in root_doc.select(&selector) {
+        let Some(href) = node.value().attr("href") else {
+            continue;
+        };
+        if href.starts_with('#') || href.starts_with("javascript:") {
+            continue;
+        }
+        let Some(url) = base.as_ref().and_then(|base| base.join(href).ok()) else {
+            continue;
+        };
+        if !matches!(url.scheme(), "http" | "https") {
+            continue;
+        }
+        let url = url.to_string();
+        if seen.insert(url.clone()) {
+            links.push(url);
+        }
+    }
+    links
 }
 
 fn page_to_markdown(page: ProviderPage) -> (ProviderPage, String, HashMap<String, Option<String>>) {
@@ -615,6 +674,14 @@ mod tests {
         assert!(content_html.contains("<main>"));
         assert!(content_html.contains("Article"));
         assert!(!content_html.contains("Navigation"));
+    }
+
+    #[test]
+    fn links_are_absolute_and_deduplicated() {
+        let html = r##"<html><body><main><a href="/docs">Docs</a><a href="https://example.com/docs">Docs again</a><a href="#part">Part</a></main></body></html>"##;
+        let links = extract_links(html, "https://example.com/start");
+
+        assert_eq!(links, vec!["https://example.com/docs".to_string()]);
     }
 
     #[test]

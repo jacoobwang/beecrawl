@@ -31,7 +31,7 @@ Firecrawl-style Markdown extraction endpoint migrated from
 ```json
 {
   "url": "https://example.com",
-  "formats": ["markdown", "html", "rawHtml"],
+  "formats": ["markdown", "html", "rawHtml", "links", "screenshot"],
   "timeout_seconds": 30,
   "wait_for_ms": 0,
   "use_browser": "auto"
@@ -39,8 +39,9 @@ Firecrawl-style Markdown extraction endpoint migrated from
 ```
 
 Returns `request_id`, `final_url`, `markdown`, and provider metadata. Request
-`html` for the selected content root HTML or `rawHtml` for the complete fetched
-or browser-rendered HTML. Set
+`html` for the selected content root HTML, `rawHtml` for the complete fetched
+or browser-rendered HTML, `links` for deduplicated absolute page links, or
+`screenshot` for a PNG data URL. Screenshots require browser rendering. Set
 `BEECRAWL_WEB_EXTRACT_API_KEY` or `WEB_EXTRACT_API_KEY` to require
 `X-Web-Extract-Api-Key`, `X-Api-Key`, or bearer-token auth.
 

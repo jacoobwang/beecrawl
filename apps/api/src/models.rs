@@ -33,6 +33,10 @@ pub struct WebExtractScrapeResponse {
     pub html: Option<String>,
     #[serde(rename = "rawHtml", default, skip_serializing_if = "Option::is_none")]
     pub raw_html: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screenshot: Option<String>,
     pub metadata: WebExtractMetadata,
 }
 
@@ -291,6 +295,7 @@ pub struct ProviderPage {
     pub language: Option<String>,
     pub provider: String,
     pub rendered: bool,
+    pub screenshot: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -305,6 +310,8 @@ pub struct BeeEngineScrapeResponse {
     pub page_error: Option<String>,
     #[serde(rename = "responseHeaders", default)]
     pub response_headers: HashMap<String, String>,
+    #[serde(default)]
+    pub screenshots: Vec<String>,
 }
 
 fn default_formats() -> Vec<String> {
