@@ -65,9 +65,11 @@ Discovers same-site URLs from sitemap first, then page links.
 }
 ```
 
-Starts an asynchronous, same-site crawl. Poll `GET /crawl/{id}` for progress
-and collected pages, or use `DELETE /crawl/{id}` to request cancellation. Jobs
-and results are stored in Postgres and consumed by a separate worker process.
+Starts an asynchronous, same-site crawl. Poll `GET /crawl/{id}?offset=0&limit=20`
+for progress and a page of collected results, or use `DELETE /crawl/{id}` to
+request cancellation. `maxRetries` controls retry attempts after the first
+failed scrape; it defaults to `2`. Jobs and results are stored in Postgres and
+consumed by a separate worker process.
 
 ### `POST /search`
 
@@ -153,6 +155,9 @@ In another terminal:
 ```bash
 make worker
 ```
+
+Crawl jobs are retained for seven days by default. The worker runs cleanup
+hourly; `make crawl-cleanup` is also available for a scheduled job.
 
 Browser rendering for `use_browser: "auto"` is provided by the Python Bee
 Engine service:

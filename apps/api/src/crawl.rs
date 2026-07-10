@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
@@ -8,8 +8,8 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::models::{
-    CrawlEnqueueResponse, CrawlError, CrawlRequest, CrawlStatusResponse, WebExtractMapRequest,
-    WebExtractScrapeRequest, WebExtractScrapeResponse,
+    CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
+    CrawlStatusResponse, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
 
@@ -54,16 +54,22 @@ impl CrawlStore {
     }
 
     pub fn from_env() -> Self {
-        let pool = std::env::var("BEECRAWL_DATABASE_URL")
+        let url = std::env::var("BEECRAWL_DATABASE_URL")
             .or_else(|_| std::env::var("DATABASE_URL"))
-            .map_err(|_| "Set BEECRAWL_DATABASE_URL or DATABASE_URL to enable /crawl".to_string())
-            .and_then(|url| {
-                PgPoolOptions::new()
-                    .max_connections(database_max_connections())
-                    .connect_lazy(&url)
-                    .map_err(|error| error.to_string())
-            });
-        Self { pool }
+            .map_err(|_| "Set BEECRAWL_DATABASE_URL or DATABASE_URL to enable /crawl".to_string());
+        match url {
+            Ok(url) => Self::from_database_url(&url),
+            Err(error) => Self::unavailable(error),
+        }
+    }
+
+    pub fn from_database_url(url: &str) -> Self {
+        Self {
+            pool: PgPoolOptions::new()
+                .max_connections(database_max_connections())
+                .connect_lazy(url)
+                .map_err(|error| error.to_string()),
+        }
     }
 
     fn pool(&self) -> Result<&PgPool, CrawlStoreError> {
@@ -87,7 +93,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9)",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(days => $11))",
         )
         .bind(id)
         .bind(&url)
@@ -98,6 +104,8 @@ impl CrawlStore {
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
+        .bind(request.max_retries as i32)
+        .bind(crawl_retention_days())
         .execute(&mut *transaction)
         .await?;
         sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status) VALUES ($1, $2, $3, 0, 'queued')")
@@ -114,7 +122,11 @@ impl CrawlStore {
         })
     }
 
-    pub async fn get(&self, id: &str) -> Result<Option<CrawlStatusResponse>, CrawlStoreError> {
+    pub async fn get(
+        &self,
+        id: &str,
+        query: CrawlStatusQuery,
+    ) -> Result<Option<CrawlStatusResponse>, CrawlStoreError> {
         let id = parse_id(id)?;
         let pool = self.pool()?;
         let job = sqlx::query("SELECT id, url, status FROM crawl_jobs WHERE id = $1")
@@ -126,8 +138,12 @@ impl CrawlStore {
             .bind(id)
             .fetch_one(pool)
             .await?;
-        let rows = sqlx::query("SELECT result, error_code, error_message, url FROM crawl_tasks WHERE crawl_id = $1 AND (result IS NOT NULL OR status = 'failed') ORDER BY finished_at ASC NULLS LAST")
+        let limit = query.limit.clamp(1, 100);
+        let results_total = count(&counts, "completed")? + count(&counts, "failed")?;
+        let rows = sqlx::query("SELECT result, error_code, error_message, url FROM crawl_tasks WHERE crawl_id = $1 AND (result IS NOT NULL OR status = 'failed') ORDER BY finished_at ASC NULLS LAST OFFSET $2 LIMIT $3")
             .bind(id)
+            .bind(query.offset as i64)
+            .bind(limit as i64)
             .fetch_all(pool)
             .await?;
         let mut data = Vec::new();
@@ -161,6 +177,12 @@ impl CrawlStore {
             failed: count(&counts, "failed")?,
             data,
             errors,
+            pagination: CrawlPagination {
+                offset: query.offset,
+                limit,
+                total: results_total,
+                next: (query.offset + limit < results_total).then_some(query.offset + limit),
+            },
         }))
     }
 
@@ -172,16 +194,16 @@ impl CrawlStore {
             .execute(pool)
             .await?;
         if updated.rows_affected() == 0 {
-            return self.get(&id.to_string()).await;
+            return self.get(&id.to_string(), CrawlStatusQuery::default()).await;
         }
-        self.get(&id.to_string()).await
+        self.get(&id.to_string(), CrawlStatusQuery::default()).await
     }
 
     async fn claim_task(&self, worker_id: &str) -> Result<Option<ClaimedTask>, CrawlStoreError> {
         let pool = self.pool()?;
         let lease_token = Uuid::new_v4();
         let row = sqlx::query(
-            "WITH candidate AS (SELECT tasks.id FROM crawl_tasks AS tasks JOIN crawl_jobs AS jobs ON jobs.id = tasks.crawl_id WHERE jobs.cancel_requested = false AND jobs.status IN ('queued', 'scraping') AND (tasks.status = 'queued' OR (tasks.status = 'active' AND tasks.lease_expires_at < now())) ORDER BY tasks.created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE crawl_tasks AS tasks SET status = 'active', attempts = tasks.attempts + 1, lease_token = $1, lease_expires_at = now() + make_interval(secs => 90), worker_id = $2, started_at = COALESCE(tasks.started_at, now()) FROM candidate WHERE tasks.id = candidate.id RETURNING tasks.id, tasks.crawl_id, tasks.url, tasks.depth, tasks.lease_token",
+            "WITH candidate AS (SELECT tasks.id FROM crawl_tasks AS tasks JOIN crawl_jobs AS jobs ON jobs.id = tasks.crawl_id WHERE jobs.cancel_requested = false AND jobs.status IN ('queued', 'scraping') AND ((tasks.status = 'queued' AND tasks.next_attempt_at <= now()) OR (tasks.status = 'active' AND tasks.lease_expires_at < now())) ORDER BY tasks.next_attempt_at, tasks.created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE crawl_tasks AS tasks SET status = 'active', attempts = tasks.attempts + 1, lease_token = $1, lease_expires_at = now() + make_interval(secs => 90), worker_id = $2, started_at = COALESCE(tasks.started_at, now()) FROM candidate WHERE tasks.id = candidate.id RETURNING tasks.id, tasks.crawl_id, tasks.url, tasks.depth, tasks.attempts, tasks.lease_token",
         )
         .bind(lease_token)
         .bind(worker_id)
@@ -198,6 +220,7 @@ impl CrawlStore {
             crawl_id,
             url: row.try_get("url")?,
             depth: row.try_get::<i32, _>("depth")? as usize,
+            attempts: row.try_get("attempts")?,
             lease_token: row.try_get("lease_token")?,
         }))
     }
@@ -265,22 +288,40 @@ impl CrawlStore {
     ) -> Result<(), CrawlStoreError> {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
-        sqlx::query("SELECT id FROM crawl_jobs WHERE id = $1 FOR UPDATE")
-            .bind(task.crawl_id)
-            .fetch_one(&mut *transaction)
-            .await?;
-        let updated = sqlx::query("UPDATE crawl_tasks SET status = 'failed', error_code = $1, error_message = $2, lease_expires_at = NULL, finished_at = now() WHERE id = $3 AND lease_token = $4 AND status = 'active'")
+        let job = sqlx::query(
+            "SELECT cancel_requested, max_retries FROM crawl_jobs WHERE id = $1 FOR UPDATE",
+        )
+        .bind(task.crawl_id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        let cancelled: bool = job.try_get("cancel_requested")?;
+        let max_retries: i32 = job.try_get("max_retries")?;
+        let retryable = is_retryable(&error);
+        let updated = sqlx::query("UPDATE crawl_tasks SET status = CASE WHEN $1 AND NOT $2 AND attempts <= $3 THEN 'queued' ELSE 'failed' END, error_code = $4, error_message = $5, lease_expires_at = NULL, next_attempt_at = CASE WHEN $1 AND NOT $2 AND attempts <= $3 THEN now() + make_interval(secs => $6) ELSE next_attempt_at END, finished_at = CASE WHEN $1 AND NOT $2 AND attempts <= $3 THEN NULL ELSE now() END WHERE id = $7 AND lease_token = $8 AND status = 'active' RETURNING attempts, status")
+            .bind(retryable)
+            .bind(cancelled)
+            .bind(max_retries)
             .bind(error.code())
             .bind(error.to_string())
+            .bind(retry_delay_seconds(task.attempts))
             .bind(task.id)
             .bind(task.lease_token)
-            .execute(&mut *transaction)
+            .fetch_optional(&mut *transaction)
             .await?;
-        if updated.rows_affected() > 0 {
+        if updated.is_some() {
             complete_if_drained(&mut transaction, task.crawl_id).await?;
         }
         transaction.commit().await?;
         Ok(())
+    }
+
+    pub async fn cleanup_expired(&self) -> Result<u64, CrawlStoreError> {
+        let result = sqlx::query(
+            "DELETE FROM crawl_jobs WHERE expires_at IS NOT NULL AND expires_at <= now() AND status IN ('completed', 'cancelled')",
+        )
+        .execute(self.pool()?)
+        .await?;
+        Ok(result.rows_affected())
     }
 }
 
@@ -288,7 +329,13 @@ pub async fn run_worker_forever(store: CrawlStore) -> anyhow::Result<()> {
     let worker_id = std::env::var("BEECRAWL_WORKER_ID")
         .unwrap_or_else(|_| format!("worker-{}", Uuid::new_v4()));
     let client = reqwest::Client::new();
+    let cleanup_interval = Duration::from_secs(crawl_cleanup_interval_seconds());
+    let mut next_cleanup = Instant::now();
     loop {
+        if Instant::now() >= next_cleanup {
+            store.cleanup_expired().await?;
+            next_cleanup = Instant::now() + cleanup_interval;
+        }
         match store.claim_task(&worker_id).await? {
             Some(task) => process_task(&store, &client, task).await?,
             None => sleep(Duration::from_millis(500)).await,
@@ -353,6 +400,7 @@ struct ClaimedTask {
     crawl_id: Uuid,
     url: String,
     depth: usize,
+    attempts: i32,
     lease_token: Uuid,
 }
 
@@ -392,4 +440,214 @@ fn database_max_connections() -> u32 {
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(10)
+}
+
+fn crawl_retention_days() -> i32 {
+    std::env::var("BEECRAWL_CRAWL_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value: &i32| *value > 0)
+        .unwrap_or(7)
+}
+
+fn crawl_cleanup_interval_seconds() -> u64 {
+    std::env::var("BEECRAWL_CRAWL_CLEANUP_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|value: &u64| *value > 0)
+        .unwrap_or(3600)
+}
+
+fn retry_delay_seconds(attempts: i32) -> i32 {
+    let exponent = attempts.saturating_sub(1).min(6) as u32;
+    5_i32.saturating_mul(2_i32.pow(exponent)).min(300)
+}
+
+fn is_retryable(error: &WebExtractError) -> bool {
+    matches!(
+        error,
+        WebExtractError::FetchFailed(_)
+            | WebExtractError::RenderFailed(_)
+            | WebExtractError::EmptyContent
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::OnceLock;
+
+    use tokio::sync::Mutex;
+
+    use super::*;
+    use crate::models::{WebExtractMetadata, WebExtractScrapeResponse};
+
+    static DATABASE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn store() -> Option<CrawlStore> {
+        std::env::var("BEECRAWL_TEST_DATABASE_URL")
+            .ok()
+            .filter(|url| !url.trim().is_empty())
+            .map(|url| CrawlStore::from_database_url(&url))
+    }
+
+    fn request(max_retries: usize) -> CrawlRequest {
+        CrawlRequest {
+            url: "https://example.com".to_string(),
+            limit: 10,
+            max_depth: 0,
+            include_subdomains: false,
+            ignore_query_parameters: true,
+            timeout_seconds: 5,
+            wait_for_ms: 0,
+            use_browser: "never".to_string(),
+            max_retries,
+        }
+    }
+
+    fn page(url: &str) -> WebExtractScrapeResponse {
+        WebExtractScrapeResponse {
+            request_id: Uuid::new_v4().to_string(),
+            url: url.to_string(),
+            final_url: url.to_string(),
+            markdown: "# Example".to_string(),
+            metadata: WebExtractMetadata {
+                title: Some("Example".to_string()),
+                language: Some("en".to_string()),
+                status_code: Some(200),
+                provider: "test".to_string(),
+                rendered: false,
+                elapsed_ms: Some(1),
+            },
+        }
+    }
+
+    async fn reset(store: &CrawlStore) {
+        sqlx::query("TRUNCATE crawl_tasks, crawl_jobs CASCADE")
+            .execute(store.pool().unwrap())
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn postgres_status_paginates_completed_results() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let crawl = store.enqueue(request(0)).await.unwrap();
+        let crawl_id = Uuid::parse_str(&crawl.id).unwrap();
+        let first = store.claim_task("test-worker").await.unwrap().unwrap();
+        store
+            .finish_success(&first, page("https://example.com"), vec![])
+            .await
+            .unwrap();
+        for suffix in ["one", "two"] {
+            let url = format!("https://example.com/{suffix}");
+            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status, result, finished_at) VALUES ($1, $2, $3, 1, 'completed', $4, now())")
+                .bind(Uuid::new_v4())
+                .bind(crawl_id)
+                .bind(&url)
+                .bind(serde_json::to_value(page(&url)).unwrap())
+                .execute(store.pool().unwrap())
+                .await
+                .unwrap();
+        }
+
+        let first_page = store
+            .get(
+                &crawl.id,
+                CrawlStatusQuery {
+                    offset: 0,
+                    limit: 2,
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first_page.completed, 3);
+        assert_eq!(first_page.data.len(), 2);
+        assert_eq!(first_page.pagination.total, 3);
+        assert_eq!(first_page.pagination.next, Some(2));
+
+        let second_page = store
+            .get(
+                &crawl.id,
+                CrawlStatusQuery {
+                    offset: 2,
+                    limit: 2,
+                },
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(second_page.data.len(), 1);
+        assert_eq!(second_page.pagination.next, None);
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_retries_retryable_failures_before_marking_failed() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let crawl = store.enqueue(request(1)).await.unwrap();
+        let first = store.claim_task("test-worker").await.unwrap().unwrap();
+        store
+            .finish_failure(
+                &first,
+                WebExtractError::FetchFailed("temporary".to_string()),
+            )
+            .await
+            .unwrap();
+
+        let row = sqlx::query("SELECT status, attempts, next_attempt_at > now() AS delayed FROM crawl_tasks WHERE crawl_id = $1")
+            .bind(Uuid::parse_str(&crawl.id).unwrap())
+            .fetch_one(store.pool().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(row.try_get::<String, _>("status").unwrap(), "queued");
+        assert_eq!(row.try_get::<i32, _>("attempts").unwrap(), 1);
+        assert!(row.try_get::<bool, _>("delayed").unwrap());
+
+        sqlx::query("UPDATE crawl_tasks SET next_attempt_at = now() - interval '1 second' WHERE crawl_id = $1")
+            .bind(Uuid::parse_str(&crawl.id).unwrap())
+            .execute(store.pool().unwrap())
+            .await
+            .unwrap();
+        let second = store.claim_task("test-worker").await.unwrap().unwrap();
+        store
+            .finish_failure(
+                &second,
+                WebExtractError::FetchFailed("temporary".to_string()),
+            )
+            .await
+            .unwrap();
+        let status = store
+            .get(&crawl.id, CrawlStatusQuery::default())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status.status, "completed");
+        assert_eq!(status.failed, 1);
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_cleanup_removes_expired_crawls_and_tasks() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let crawl = store.enqueue(request(0)).await.unwrap();
+        sqlx::query("UPDATE crawl_jobs SET status = 'completed', expires_at = now() - interval '1 second' WHERE id = $1")
+            .bind(Uuid::parse_str(&crawl.id).unwrap())
+            .execute(store.pool().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(store.cleanup_expired().await.unwrap(), 1);
+        assert!(store
+            .get(&crawl.id, CrawlStatusQuery::default())
+            .await
+            .unwrap()
+            .is_none());
+        reset(&store).await;
+    }
 }

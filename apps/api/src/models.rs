@@ -93,6 +93,8 @@ pub struct CrawlRequest {
     pub wait_for_ms: u64,
     #[serde(rename = "useBrowser", default = "default_use_browser")]
     pub use_browser: String,
+    #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
+    pub max_retries: usize,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +114,32 @@ pub struct CrawlStatusResponse {
     pub failed: usize,
     pub data: Vec<WebExtractScrapeResponse>,
     pub errors: Vec<CrawlError>,
+    pub pagination: CrawlPagination,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CrawlStatusQuery {
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_crawl_status_limit")]
+    pub limit: usize,
+}
+
+impl Default for CrawlStatusQuery {
+    fn default() -> Self {
+        Self {
+            offset: 0,
+            limit: default_crawl_status_limit(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CrawlPagination {
+    pub offset: usize,
+    pub limit: usize,
+    pub total: usize,
+    pub next: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -277,6 +305,14 @@ fn default_crawl_limit() -> usize {
 
 fn default_crawl_max_depth() -> usize {
     2
+}
+
+fn default_crawl_max_retries() -> usize {
+    2
+}
+
+fn default_crawl_status_limit() -> usize {
+    20
 }
 
 fn default_sitemap() -> String {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -10,8 +10,9 @@ use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
-    CrawlEnqueueResponse, CrawlRequest, CrawlStatusResponse, ExtractMetadata, ExtractRequest,
-    ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
+    CrawlEnqueueResponse, CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata,
+    ExtractRequest, ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest,
+    WebExtractScrapeRequest,
 };
 use crate::{
     crawl::{CrawlStore, CrawlStoreError},
@@ -63,11 +64,12 @@ async fn crawl_status(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<CrawlStatusQuery>,
 ) -> Result<Json<CrawlStatusResponse>, ApiError> {
     require_auth(&headers)?;
     state
         .crawls
-        .get(&id)
+        .get(&id, query)
         .await
         .map_err(ApiError::from)?
         .map(Json)

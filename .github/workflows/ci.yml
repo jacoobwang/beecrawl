@@ -8,6 +8,23 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: beecrawl_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d beecrawl_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      BEECRAWL_DATABASE_URL: postgres://postgres:postgres@localhost:5432/beecrawl_test
+      BEECRAWL_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/beecrawl_test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -19,5 +36,7 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --extra dev --extra browser --locked
+      - run: cargo install sqlx-cli --version 0.8.6 --no-default-features --features postgres,rustls
+      - run: make migrate-up
       - run: make test
       - run: make lint
