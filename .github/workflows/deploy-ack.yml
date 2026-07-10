@@ -87,7 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for image in beecrawl-api beecrawl-worker beecrawl-bee-engine; do
+          for image in beecrawl-api beecrawl-worker beecrawl-bee-engine beecrawl-migrations; do
             docker buildx imagetools inspect \
               "ghcr.io/${{ steps.meta.outputs.owner }}/${image}:${{ steps.meta.outputs.tag }}" \
               > /dev/null
@@ -162,7 +162,9 @@ jobs:
             --set-string "api.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-api"
             --set-string "worker.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-worker"
             --set-string "beeEngine.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-bee-engine"
+            --set-string "migration.image.repository=${{ steps.meta.outputs.owner }}/beecrawl-migrations"
             --set-string "global.imageTag=${{ steps.meta.outputs.tag }}"
+            --set migration.enabled=true
             --atomic
             --wait
             --timeout 15m

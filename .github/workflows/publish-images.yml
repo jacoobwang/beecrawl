@@ -45,6 +45,10 @@ jobs:
             image: beecrawl-bee-engine
             dockerfile: Dockerfile.bee-engine
             buildArgs: ""
+          - component: migrations
+            image: beecrawl-migrations
+            dockerfile: Dockerfile.rust
+            buildArgs: BIN=migrate
     steps:
       - uses: actions/checkout@v4
 

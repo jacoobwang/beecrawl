@@ -16,6 +16,8 @@ docker build -f Dockerfile.rust --build-arg BIN=worker \
   -t ghcr.io/your-org/beecrawl-worker:sha-abcdef1 .
 docker build -f Dockerfile.bee-engine \
   -t ghcr.io/your-org/beecrawl-bee-engine:sha-abcdef1 .
+docker build -f Dockerfile.rust --build-arg BIN=migrate \
+  -t ghcr.io/your-org/beecrawl-migrations:sha-abcdef1 .
 ```
 
 PostgreSQL is not part of this chart. Configure `BEECRAWL_DATABASE_URL` in an
@@ -57,10 +59,9 @@ helm upgrade --install beecrawl infra/charts/beecrawl \
   --set api.ingress.tls.enabled=true
 ```
 
-The migration hook is disabled by default. Run `make migrate-up` from a
-network location that can reach Aliyun PostgreSQL, or enable the hook only
-after publishing a migration image and configuring `migration.command` and
-`migration.args`.
+The migration hook is disabled by default for chart consumers. The repository
+deployment workflow publishes `beecrawl-migrations` and enables the hook so
+SQLx migrations run inside ACK before each install or upgrade.
 
 ## GitHub Actions deployment
 

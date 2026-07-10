@@ -12,6 +12,7 @@ metadata:
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
   backoffLimit: {{ .Values.migration.backoffLimit }}
+  ttlSecondsAfterFinished: 300
   template:
     metadata:
       labels:
@@ -19,6 +20,8 @@ spec:
         component: migration
     spec:
       restartPolicy: Never
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -27,6 +30,8 @@ spec:
         - name: migration
           image: {{ include "beecrawl.image" (dict "global" .Values.global "image" .Values.migration.image) }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
           {{- with .Values.migration.command }}
           command:
             {{- toYaml . | nindent 12 }}
