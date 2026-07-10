@@ -101,8 +101,8 @@ Browser rendering for `use_browser: "auto"` is provided by the Python Bee
 Engine service:
 
 ```bash
-uv pip install -e ".[browser]"
-.venv/bin/playwright install chromium
+make install
+make playwright-install
 make bee-engine
 ```
 
