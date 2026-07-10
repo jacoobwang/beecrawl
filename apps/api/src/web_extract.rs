@@ -16,6 +16,7 @@ use crate::models::{
 
 const DEFAULT_USER_AGENT: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const MIN_CONTENT_ROOT_CHARS: usize = 500;
 
 #[derive(Debug, Error)]
 pub enum WebExtractError {
@@ -455,13 +456,27 @@ pub fn normalize_url(raw_url: &str) -> Result<String, WebExtractError> {
 }
 
 fn select_root_html(document: &Html) -> Option<String> {
-    for selector in ["main", "article", "body"] {
+    let body_selector = Selector::parse("body").ok()?;
+    let body = document.select(&body_selector).next();
+    let body_text_len = body
+        .as_ref()
+        .map(|node| collect_text(&node.text().collect::<Vec<_>>().join(" ")).len())
+        .unwrap_or(0);
+
+    for selector in ["main", "article"] {
         let selector = Selector::parse(selector).ok()?;
         if let Some(node) = document.select(&selector).next() {
+            let preferred_text_len = collect_text(&node.text().collect::<Vec<_>>().join(" ")).len();
+            if preferred_text_len < MIN_CONTENT_ROOT_CHARS
+                && body_text_len >= MIN_CONTENT_ROOT_CHARS.max(preferred_text_len * 3)
+            {
+                break;
+            }
             return Some(node.html());
         }
     }
-    None
+    body.map(|node| node.html())
+        .or_else(|| Some(document.html()))
 }
 
 fn append_markdown_from_selector(document: &Html, selector: &str, prefix: &str, out: &mut String) {
@@ -553,6 +568,24 @@ mod tests {
         assert!(markdown.contains("# About"));
         assert!(markdown.contains("[Link](https://example.com/x)"));
         assert_eq!(metadata["language"], Some("en".to_string()));
+    }
+
+    #[test]
+    fn markdown_falls_back_to_body_when_main_is_sparse() {
+        let body_content = "Rendered body content. ".repeat(40);
+        let html = format!(
+            r#"<html><head><title>Y Warm</title></head><body>
+              <header>Navigation</header>
+              <main><a href="/report"><h2>Report</h2><p>View More</p></a></main>
+              <section><h1>Thermal Material</h1><p>{body_content}</p></section>
+              <footer>Copyright</footer>
+            </body></html>"#
+        );
+        let (markdown, _) = extract_markdown(&html, "https://example.com");
+
+        assert!(markdown.contains("Thermal Material"));
+        assert!(markdown.contains("Rendered body content."));
+        assert!(markdown.contains("Report"));
     }
 
     #[test]
