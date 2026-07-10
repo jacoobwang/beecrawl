@@ -39,5 +39,5 @@ target-version = "py311"
 where = ["apps/api"]
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests"]
-pythonpath = ["apps/api"]
+testpaths = ["apps/api/tests", "apps/bee-engine/tests"]
+pythonpath = ["apps/api", "apps/bee-engine"]

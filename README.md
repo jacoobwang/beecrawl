@@ -102,6 +102,20 @@ Browser rendering reuses an in-process Chromium instance and creates an
 isolated context per request. Set `BEECRAWL_BROWSER_MAX_PAGES` to control
 concurrent rendered pages; the default is `4`.
 
+Bee Engine can also be started as a standalone browser rendering service:
+
+```bash
+make bee-engine
+```
+
+It exposes Fire Engine-style endpoints on port `8020` by default:
+
+```text
+POST   /scrape
+GET    /scrape/{job_id}
+DELETE /scrape/{job_id}
+```
+
 Then open:
 
 ```bash
@@ -114,6 +128,7 @@ curl -X POST http://127.0.0.1:8000/scrape \
 
 ```text
 apps/api      API and worker package
+apps/bee-engine  Browser rendering service
 apps/*-sdk    SDK packages
 ```
 
