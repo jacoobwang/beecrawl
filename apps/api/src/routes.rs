@@ -10,10 +10,10 @@ use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
-    ExtractRequest, ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest,
+    ExtractMetadata, ExtractRequest, ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest,
     WebExtractScrapeRequest,
 };
-use crate::{search, web_extract};
+use crate::{llm, search, web_extract};
 
 #[derive(Clone)]
 struct AppState {
@@ -74,29 +74,65 @@ async fn extract(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Response, ApiError> {
-    let page = web_extract::fetch_page(&state.client, &request.url, 20).await?;
-    let (text, metadata) = web_extract::extract_markdown(&page.html, &page.final_url);
-    let mut data = HashMap::new();
-    for field in request.schema.keys() {
-        data.insert(
-            field.clone(),
-            extract_field(field, &text, metadata.get("title").and_then(Clone::clone)),
-        );
-    }
+    let scrape_response = web_extract::scrape(
+        &state.client,
+        WebExtractScrapeRequest {
+            url: request.url.clone(),
+            formats: vec!["markdown".to_string()],
+            location: None,
+            timeout_seconds: request.timeout_seconds,
+            wait_for_ms: request.wait_for_ms,
+            use_browser: request.use_browser.clone(),
+        },
+    )
+    .await?;
+    let text = scrape_response.markdown;
+    let provider_override = request.provider.as_ref().or(request.llm.as_ref());
+    let llm_provider = llm::resolve_provider(provider_override)?;
+    let (data, extract_provider, extract_model) = if let Some(provider) = llm_provider {
+        (
+            llm::extract_structured_data(
+                &state.client,
+                &provider,
+                &request.url,
+                &request.schema,
+                &text,
+            )
+            .await?,
+            provider.provider,
+            Some(provider.model),
+        )
+    } else {
+        let mut data = HashMap::new();
+        for field in request.schema.keys() {
+            data.insert(
+                field.clone(),
+                extract_field(field, &text, scrape_response.metadata.title.clone()),
+            );
+        }
+        (data, "deterministic".to_string(), None)
+    };
     let scrape = ScrapeResponse {
         url: request.url.clone(),
-        title: metadata.get("title").and_then(Clone::clone),
+        title: scrape_response.metadata.title,
         text,
         links: vec![],
-        metadata: metadata
-            .into_iter()
-            .filter_map(|(key, value)| value.map(|value| (key, value)))
-            .collect(),
+        metadata: HashMap::from([
+            ("provider".to_string(), scrape_response.metadata.provider),
+            (
+                "rendered".to_string(),
+                scrape_response.metadata.rendered.to_string(),
+            ),
+        ]),
     };
     Ok(Json(ExtractResponse {
         url: request.url,
         data,
         scrape,
+        metadata: ExtractMetadata {
+            provider: extract_provider,
+            model: extract_model,
+        },
     })
     .into_response())
 }
@@ -157,6 +193,7 @@ fn require_auth(headers: &HeaderMap) -> Result<(), ApiError> {
 #[derive(Debug)]
 pub enum ApiError {
     WebExtract(web_extract::WebExtractError),
+    Llm(llm::LlmError),
     Unauthorized,
     Internal(String),
 }
@@ -164,6 +201,12 @@ pub enum ApiError {
 impl From<web_extract::WebExtractError> for ApiError {
     fn from(value: web_extract::WebExtractError) -> Self {
         Self::WebExtract(value)
+    }
+}
+
+impl From<llm::LlmError> for ApiError {
+    fn from(value: llm::LlmError) -> Self {
+        Self::Llm(value)
     }
 }
 
@@ -177,6 +220,17 @@ impl IntoResponse for ApiError {
                         "code": error.code(),
                         "message": error.to_string(),
                         "retryable": matches!(error, web_extract::WebExtractError::FetchFailed(_) | web_extract::WebExtractError::RenderFailed(_))
+                    }
+                })),
+            )
+                .into_response(),
+            Self::Llm(error) => (
+                error.status(),
+                Json(json!({
+                    "detail": {
+                        "code": error.code(),
+                        "message": error.to_string(),
+                        "retryable": matches!(error, llm::LlmError::RequestFailed(_))
                     }
                 })),
             )

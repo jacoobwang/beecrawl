@@ -133,6 +133,14 @@ pub struct SearchMetadata {
 pub struct ExtractRequest {
     pub url: String,
     pub schema: HashMap<String, String>,
+    #[serde(default = "default_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(default)]
+    pub wait_for_ms: u64,
+    #[serde(default = "default_use_browser")]
+    pub use_browser: String,
+    pub provider: Option<LlmProviderConfig>,
+    pub llm: Option<LlmProviderConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +148,13 @@ pub struct ExtractResponse {
     pub url: String,
     pub data: HashMap<String, Option<String>>,
     pub scrape: ScrapeResponse,
+    pub metadata: ExtractMetadata,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtractMetadata {
+    pub provider: String,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -155,6 +170,15 @@ pub struct ScrapeResponse {
 pub struct Link {
     pub text: String,
     pub url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct LlmProviderConfig {
+    #[serde(default = "default_llm_provider")]
+    pub provider: String,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -217,4 +241,8 @@ fn default_lang() -> String {
 
 fn default_country() -> String {
     "us".to_string()
+}
+
+fn default_llm_provider() -> String {
+    "openai-compatible".to_string()
 }

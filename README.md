@@ -82,12 +82,36 @@ SearXNG, BeeCrawl falls back to DuckDuckGo HTML search.
   "schema": {
     "company": "Company name",
     "email": "Contact email"
-  }
+  },
+  "use_browser": "auto"
 }
 ```
 
-Returns a structured JSON object. The initial implementation uses deterministic
-page parsing; an LLM-backed extractor can be added behind the same contract.
+Returns a structured JSON object. By default it uses deterministic page parsing.
+Configure an OpenAI-compatible LLM provider to enable model-backed extraction:
+
+```bash
+BEECRAWL_LLM_PROVIDER=openai-compatible
+BEECRAWL_LLM_API_KEY=...
+BEECRAWL_LLM_BASE_URL=https://api.openai.com/v1
+BEECRAWL_LLM_MODEL=gpt-4o-mini
+```
+
+Per-request provider overrides are also supported with `provider` or `llm`:
+
+```json
+{
+  "url": "https://example.com",
+  "schema": {
+    "company": "Company name"
+  },
+  "provider": {
+    "provider": "openai-compatible",
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "model": "qwen-plus"
+  }
+}
+```
 
 ## Quick Start
 
