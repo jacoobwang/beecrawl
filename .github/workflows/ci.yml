@@ -40,3 +40,21 @@ jobs:
       - run: make migrate-up
       - run: make test
       - run: make lint
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.18.0
+      - run: helm lint infra/charts/beecrawl
+      - run: helm lint infra/charts/beecrawl -f infra/charts/beecrawl/values-production.example.yaml
+      - run: >-
+          helm template beecrawl infra/charts/beecrawl
+          -f infra/charts/beecrawl/values-production.example.yaml
+          --set api.image.repository=example/beecrawl-api
+          --set worker.image.repository=example/beecrawl-worker
+          --set beeEngine.image.repository=example/beecrawl-bee-engine
+          --set global.imageTag=sha-ci
+          > /dev/null
