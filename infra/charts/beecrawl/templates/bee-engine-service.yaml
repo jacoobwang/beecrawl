@@ -1,0 +1,20 @@
+{{- if .Values.beeEngine.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "beecrawl.fullname" . }}-{{ .Values.beeEngine.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "beecrawl.labels" . | nindent 4 }}
+    component: bee-engine
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "beecrawl.selectorLabels" . | nindent 4 }}
+    app: {{ .Values.beeEngine.name }}
+  ports:
+    - name: http
+      port: {{ .Values.beeEngine.service.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}

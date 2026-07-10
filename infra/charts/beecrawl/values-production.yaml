@@ -1,0 +1,45 @@
+global:
+  imageTag: prod-latest
+  imagePullPolicy: IfNotPresent
+  environment: production
+
+api:
+  replicaCount: 2
+  ingress:
+    enabled: true
+    className: nginx
+    host: beecrawl.example.com
+    path: /
+    pathType: Prefix
+    tls:
+      enabled: true
+      secretName: beecrawl-tls
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+worker:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+beeEngine:
+  replicaCount: 1
+  env:
+    BEE_ENGINE_MAX_PAGES: "4"
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+    limits:
+      cpu: 4000m
+      memory: 4Gi

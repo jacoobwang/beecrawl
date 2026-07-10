@@ -1,0 +1,32 @@
+{{- if and .Values.api.enabled .Values.api.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "beecrawl.fullname" . }}-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "beecrawl.labels" . | nindent 4 }}
+  {{- with .Values.api.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.api.ingress.className }}
+  rules:
+    - host: {{ .Values.api.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.api.ingress.path }}
+            pathType: {{ .Values.api.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "beecrawl.fullname" . }}-api
+                port:
+                  name: http
+  {{- if .Values.api.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.api.ingress.host | quote }}
+      secretName: {{ .Values.api.ingress.tls.secretName | default (printf "%s-tls" (include "beecrawl.fullname" .)) }}
+  {{- end }}
+{{- end }}

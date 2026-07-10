@@ -1,0 +1,120 @@
+global:
+  imageRegistry: ghcr.io
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  environment: production
+
+fullnameOverride: beecrawl
+
+# These Secrets are created outside Helm. The database URL must point to the
+# dedicated BeeCrawl database on the existing Aliyun PostgreSQL instance.
+secretRefs:
+  database: beecrawl-database-secret
+  api: beecrawl-api-secret
+  llm: beecrawl-llm-secret
+
+api:
+  enabled: true
+  name: api
+  replicaCount: 2
+  image:
+    repository: jacoobwang/beecrawl-api
+    tag: ""
+  service:
+    enabled: true
+    type: ClusterIP
+    port: 8000
+    targetPort: 8000
+  ingress:
+    enabled: false
+    className: nginx
+    host: beecrawl.example.com
+    path: /
+    pathType: Prefix
+    annotations: {}
+    tls:
+      enabled: false
+      secretName: ""
+  env:
+    HOST: "0.0.0.0"
+    PORT: "8000"
+    BEE_ENGINE_URL: http://beecrawl-bee-engine:8020
+    BEECRAWL_SCRAPE_CACHE_MAX_AGE_SECONDS: "14400"
+    BEECRAWL_SCRAPE_CACHE_RETENTION_DAYS: "7"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  annotations: {}
+
+worker:
+  enabled: true
+  name: worker
+  replicaCount: 1
+  image:
+    repository: jacoobwang/beecrawl-worker
+    tag: ""
+  env:
+    BEE_ENGINE_URL: http://beecrawl-bee-engine:8020
+    BEECRAWL_SCRAPE_CACHE_MAX_AGE_SECONDS: "14400"
+    BEECRAWL_SCRAPE_CACHE_RETENTION_DAYS: "7"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  annotations: {}
+
+beeEngine:
+  enabled: true
+  name: bee-engine
+  replicaCount: 1
+  image:
+    repository: jacoobwang/beecrawl-bee-engine
+    tag: ""
+  service:
+    port: 8020
+    targetPort: 8020
+  env:
+    BEE_ENGINE_MAX_PAGES: "4"
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 3Gi
+  annotations: {}
+
+# Database migrations are intentionally separate from the application
+# Deployments. Enable this only when a migration image/command is available.
+migration:
+  enabled: false
+  image:
+    repository: jacoobwang/beecrawl-migrations
+    tag: ""
+  command: []
+  args: []
+  backoffLimit: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: [ALL]
+
+rollout:
+  maxSurge: 0
+  maxUnavailable: 1

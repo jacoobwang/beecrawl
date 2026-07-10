@@ -1,0 +1,56 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "beecrawl.fullname" . }}-{{ .Values.worker.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "beecrawl.labels" . | nindent 4 }}
+    app: {{ .Values.worker.name }}
+    component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- include "beecrawl.rolloutStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "beecrawl.selectorLabels" . | nindent 6 }}
+      app: {{ .Values.worker.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "beecrawl.selectorLabels" . | nindent 8 }}
+        app: {{ .Values.worker.name }}
+        component: worker
+      annotations:
+        {{- with .Values.worker.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Values.worker.name }}
+          image: {{ include "beecrawl.image" (dict "global" .Values.global "image" .Values.worker.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretRefs.database }}
+            {{- if .Values.secretRefs.api }}
+            - secretRef:
+                name: {{ .Values.secretRefs.api }}
+                optional: true
+            {{- end }}
+          env:
+            {{- range $key, $value := .Values.worker.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+{{- end }}

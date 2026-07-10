@@ -1,0 +1,85 @@
+{{- if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "beecrawl.fullname" . }}-{{ .Values.api.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "beecrawl.labels" . | nindent 4 }}
+    app: {{ .Values.api.name }}
+    component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  {{- include "beecrawl.rolloutStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "beecrawl.selectorLabels" . | nindent 6 }}
+      app: {{ .Values.api.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "beecrawl.selectorLabels" . | nindent 8 }}
+        app: {{ .Values.api.name }}
+        component: api
+      annotations:
+        {{- with .Values.api.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Values.api.name }}
+          image: {{ include "beecrawl.image" (dict "global" .Values.global "image" .Values.api.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.targetPort }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.secretRefs.database }}
+            {{- if .Values.secretRefs.api }}
+            - secretRef:
+                name: {{ .Values.secretRefs.api }}
+                optional: true
+            {{- end }}
+            {{- if .Values.secretRefs.llm }}
+            - secretRef:
+                name: {{ .Values.secretRefs.llm }}
+                optional: true
+            {{- end }}
+          env:
+            {{- range $key, $value := .Values.api.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+{{- end }}

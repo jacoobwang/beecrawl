@@ -1,0 +1,72 @@
+{{- if .Values.beeEngine.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "beecrawl.fullname" . }}-{{ .Values.beeEngine.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "beecrawl.labels" . | nindent 4 }}
+    app: {{ .Values.beeEngine.name }}
+    component: bee-engine
+spec:
+  replicas: {{ .Values.beeEngine.replicaCount }}
+  {{- include "beecrawl.rolloutStrategy" . | nindent 2 }}
+  selector:
+    matchLabels:
+      {{- include "beecrawl.selectorLabels" . | nindent 6 }}
+      app: {{ .Values.beeEngine.name }}
+  template:
+    metadata:
+      labels:
+        {{- include "beecrawl.selectorLabels" . | nindent 8 }}
+        app: {{ .Values.beeEngine.name }}
+        component: bee-engine
+      annotations:
+        {{- with .Values.beeEngine.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Values.beeEngine.name }}
+          image: {{ include "beecrawl.image" (dict "global" .Values.global "image" .Values.beeEngine.image) }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.beeEngine.service.targetPort }}
+          env:
+            {{- range $key, $value := .Values.beeEngine.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.beeEngine.resources | nindent 12 }}
+{{- end }}
