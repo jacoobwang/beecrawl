@@ -1,0 +1,19 @@
+[package]
+name = "beecrawl-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Rust HTTP SDK for the BeeCrawl API."
+readme = "README.md"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
+serde = "1.0"
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.42", features = ["time"] }
+
+[dev-dependencies]
+axum = "0.7"
+tokio = { version = "1.42", features = ["macros", "rt-multi-thread", "net", "time"] }

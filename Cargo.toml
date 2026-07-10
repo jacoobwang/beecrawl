@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/api"]
+members = ["apps/api", "apps/rust-sdk"]
 resolver = "2"
 
 [workspace.package]

@@ -219,6 +219,9 @@ It provides synchronous and asynchronous clients for `/scrape`, `/map`,
 `/search`, `/extract`, `/crawl`, and `/batch/scrape`. The SDK does not run a
 browser locally; browser rendering and workers stay on the BeeCrawl server.
 
+An asynchronous Rust SDK is available under `apps/rust-sdk` and can be added
+as the `beecrawl-sdk` Cargo dependency.
+
 Then open:
 
 ```bash
