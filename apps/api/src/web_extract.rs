@@ -62,11 +62,25 @@ pub async fn scrape(
     if markdown.trim().is_empty() {
         return Err(WebExtractError::EmptyContent);
     }
+    let html = request
+        .formats
+        .iter()
+        .any(|format| format.eq_ignore_ascii_case("html"))
+        .then(|| extract_content_html(&page.html));
+    let raw_html = request
+        .formats
+        .iter()
+        .any(|format| {
+            format.eq_ignore_ascii_case("rawHtml") || format.eq_ignore_ascii_case("raw_html")
+        })
+        .then(|| page.html.clone());
     Ok(WebExtractScrapeResponse {
         request_id: request_id("webext"),
         url: page.url,
         final_url: page.final_url,
         markdown,
+        html,
+        raw_html,
         metadata: WebExtractMetadata {
             title: markdown_meta.get("title").cloned().flatten().or(page.title),
             language: markdown_meta
@@ -260,6 +274,11 @@ pub fn extract_markdown(html: &str, base_url: &str) -> (String, HashMap<String, 
     metadata.insert("title".to_string(), title.filter(|x| !x.is_empty()));
     metadata.insert("language".to_string(), language.filter(|x| !x.is_empty()));
     (collapse_blank_lines(&markdown), metadata)
+}
+
+pub fn extract_content_html(html: &str) -> String {
+    let document = Html::parse_document(html);
+    select_root_html(&document).unwrap_or_else(|| html.to_string())
 }
 
 fn page_to_markdown(page: ProviderPage) -> (ProviderPage, String, HashMap<String, Option<String>>) {
@@ -586,6 +605,16 @@ mod tests {
         assert!(markdown.contains("Thermal Material"));
         assert!(markdown.contains("Rendered body content."));
         assert!(markdown.contains("Report"));
+    }
+
+    #[test]
+    fn content_html_uses_the_selected_content_root() {
+        let html = r#"<html><body><header>Navigation</header><main><h1>Article</h1><p>Content</p></main><footer>Footer</footer></body></html>"#;
+        let content_html = extract_content_html(html);
+
+        assert!(content_html.contains("<main>"));
+        assert!(content_html.contains("Article"));
+        assert!(!content_html.contains("Navigation"));
     }
 
     #[test]

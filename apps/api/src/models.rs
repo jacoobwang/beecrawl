@@ -29,6 +29,10 @@ pub struct WebExtractScrapeResponse {
     pub url: String,
     pub final_url: String,
     pub markdown: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(rename = "rawHtml", default, skip_serializing_if = "Option::is_none")]
+    pub raw_html: Option<String>,
     pub metadata: WebExtractMetadata,
 }
 

@@ -568,6 +568,8 @@ mod tests {
             url: url.to_string(),
             final_url: url.to_string(),
             markdown: "# Example".to_string(),
+            html: None,
+            raw_html: None,
             metadata: WebExtractMetadata {
                 title: Some("Example".to_string()),
                 language: Some("en".to_string()),

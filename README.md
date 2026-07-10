@@ -31,14 +31,16 @@ Firecrawl-style Markdown extraction endpoint migrated from
 ```json
 {
   "url": "https://example.com",
-  "formats": ["markdown"],
+  "formats": ["markdown", "html", "rawHtml"],
   "timeout_seconds": 30,
   "wait_for_ms": 0,
   "use_browser": "auto"
 }
 ```
 
-Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
+Returns `request_id`, `final_url`, `markdown`, and provider metadata. Request
+`html` for the selected content root HTML or `rawHtml` for the complete fetched
+or browser-rendered HTML. Set
 `BEECRAWL_WEB_EXTRACT_API_KEY` or `WEB_EXTRACT_API_KEY` to require
 `X-Web-Extract-Api-Key`, `X-Api-Key`, or bearer-token auth.
 
