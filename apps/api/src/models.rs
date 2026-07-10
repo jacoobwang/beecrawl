@@ -23,6 +23,65 @@ pub struct WebExtractLocation {
     pub languages: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2ScrapeRequest {
+    pub url: String,
+    #[serde(default = "default_formats")]
+    pub formats: Vec<String>,
+    pub location: Option<WebExtractLocation>,
+    #[serde(default = "default_timeout_milliseconds")]
+    pub timeout: u64,
+    #[serde(rename = "waitFor", default)]
+    pub wait_for_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2CrawlRequest {
+    pub url: String,
+    #[serde(default = "default_crawl_limit")]
+    pub limit: usize,
+    #[serde(
+        rename = "maxDiscoveryDepth",
+        alias = "max_depth",
+        alias = "maxDepth",
+        default = "default_crawl_max_depth"
+    )]
+    pub max_discovery_depth: usize,
+    #[serde(rename = "allowSubdomains", default)]
+    pub allow_subdomains: bool,
+    #[serde(
+        rename = "ignoreQueryParameters",
+        default = "default_ignore_query_parameters"
+    )]
+    pub ignore_query_parameters: bool,
+    #[serde(rename = "scrapeOptions", default)]
+    pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct FirecrawlV2ScrapeOptions {
+    #[serde(default)]
+    pub formats: Vec<String>,
+    #[serde(default = "default_timeout_milliseconds")]
+    pub timeout: u64,
+    #[serde(rename = "waitFor", default)]
+    pub wait_for_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2ExtractRequest {
+    #[serde(default)]
+    pub urls: Vec<String>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub schema: Value,
+    #[serde(rename = "enableWebSearch", default)]
+    pub enable_web_search: bool,
+    #[serde(rename = "showSources", default)]
+    pub show_sources: bool,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebExtractScrapeResponse {
     pub request_id: String,
@@ -56,7 +115,7 @@ pub struct WebExtractMapRequest {
     pub search: Option<String>,
     #[serde(default = "default_map_limit")]
     pub limit: usize,
-    #[serde(default)]
+    #[serde(rename = "includeSubdomains", alias = "include_subdomains", default)]
     pub include_subdomains: bool,
     #[serde(default = "default_sitemap")]
     pub sitemap: String,
@@ -316,6 +375,10 @@ pub struct BeeEngineScrapeResponse {
 
 fn default_formats() -> Vec<String> {
     vec!["markdown".to_string()]
+}
+
+fn default_timeout_milliseconds() -> u64 {
+    default_timeout_seconds() * 1_000
 }
 
 fn default_timeout_seconds() -> u64 {

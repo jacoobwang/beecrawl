@@ -11,8 +11,9 @@ use tower_http::trace::TraceLayer;
 
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
-    CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse, Link,
-    ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
+    CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
+    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ScrapeRequest, Link,
+    ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -47,6 +48,14 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/map", post(map_site))
         .route("/search", post(search_route))
         .route("/extract", post(extract))
+        .route("/v2/scrape", post(firecrawl_v2_scrape))
+        .route("/v2/crawl", post(firecrawl_v2_crawl))
+        .route(
+            "/v2/crawl/:id",
+            get(firecrawl_v2_crawl_status).delete(firecrawl_v2_cancel_crawl),
+        )
+        .route("/v2/map", post(firecrawl_v2_map))
+        .route("/v2/extract", post(firecrawl_v2_extract))
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(state))
 }
@@ -148,8 +157,17 @@ async fn search_route(
 
 async fn extract(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(request): Json<ExtractRequest>,
 ) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    Ok(Json(run_extract(&state, request).await?).into_response())
+}
+
+async fn run_extract(
+    state: &AppState,
+    request: ExtractRequest,
+) -> Result<ExtractResponse, ApiError> {
     let scrape_response = web_extract::scrape_with_cache(
         &state.client,
         &state.cache,
@@ -202,7 +220,7 @@ async fn extract(
             ),
         ]),
     };
-    Ok(Json(ExtractResponse {
+    Ok(ExtractResponse {
         url: request.url,
         data,
         scrape,
@@ -211,7 +229,223 @@ async fn extract(
             model: extract_model,
         },
     })
+}
+
+async fn firecrawl_v2_scrape(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<FirecrawlV2ScrapeRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = web_extract::scrape_with_cache(
+        &state.client,
+        &state.cache,
+        WebExtractScrapeRequest {
+            url: request.url,
+            formats: request.formats,
+            location: request.location,
+            timeout_seconds: request.timeout.div_ceil(1_000).max(1),
+            wait_for_ms: request.wait_for_ms,
+            use_browser: "auto".to_string(),
+        },
+    )
+    .await?;
+    Ok(Json(json!({ "success": true, "data": firecrawl_document(response) })).into_response())
+}
+
+async fn firecrawl_v2_map(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<WebExtractMapRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = web_extract::map_site(&state.client, request).await?;
+    Ok(Json(json!({ "success": true, "links": response.links })).into_response())
+}
+
+async fn firecrawl_v2_crawl(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<FirecrawlV2CrawlRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let scrape = request.scrape_options.unwrap_or_default();
+    let response = state
+        .crawls
+        .enqueue(CrawlRequest {
+            url: request.url,
+            limit: request.limit,
+            max_depth: request.max_discovery_depth,
+            include_subdomains: request.allow_subdomains,
+            ignore_query_parameters: request.ignore_query_parameters,
+            timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
+            wait_for_ms: scrape.wait_for_ms,
+            use_browser: "auto".to_string(),
+            max_retries: 2,
+        })
+        .await?;
+    Ok(Json(json!({ "success": true, "id": response.id, "url": response.url })).into_response())
+}
+
+async fn firecrawl_v2_crawl_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<CrawlStatusQuery>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = state
+        .crawls
+        .get(&id, query)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(firecrawl_crawl_status(response)).into_response())
+}
+
+async fn firecrawl_v2_cancel_crawl(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = state.crawls.cancel(&id).await?.ok_or(ApiError::NotFound)?;
+    Ok(Json(json!({
+        "success": true,
+        "status": firecrawl_status(&response.status),
+    }))
     .into_response())
+}
+
+async fn firecrawl_v2_extract(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<FirecrawlV2ExtractRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    if request.urls.is_empty() {
+        return Err(ApiError::InvalidRequest(
+            "Firecrawl v2 extract requires at least one URL".to_string(),
+        ));
+    }
+    let mut pages = Vec::with_capacity(request.urls.len());
+    for url in &request.urls {
+        pages.push(
+            web_extract::scrape_with_cache(
+                &state.client,
+                &state.cache,
+                WebExtractScrapeRequest {
+                    url: url.clone(),
+                    formats: vec!["markdown".to_string()],
+                    location: None,
+                    timeout_seconds: 30,
+                    wait_for_ms: 0,
+                    use_browser: "auto".to_string(),
+                },
+            )
+            .await?,
+        );
+    }
+    let markdown = pages
+        .iter()
+        .map(|page| format!("# Source: {}\n\n{}", page.final_url, page.markdown))
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+    let provider = llm::resolve_provider(None)?;
+    let data = if let Some(provider) = provider {
+        llm::extract_structured_value(
+            &state.client,
+            &provider,
+            &request.urls,
+            &request.schema,
+            &markdown,
+            request.prompt.as_deref(),
+        )
+        .await?
+    } else {
+        let simple_schema = firecrawl_extract_schema(&request.schema);
+        serde_json::to_value(
+            simple_schema
+                .keys()
+                .map(|field| {
+                    (
+                        field.clone(),
+                        extract_field(field, &markdown, pages[0].metadata.title.clone()),
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
+        )
+        .unwrap_or_else(|_| json!({}))
+    };
+    let sources = request.show_sources.then(|| {
+        json!({
+            "urls": request.urls,
+        })
+    });
+    let _ = request.enable_web_search;
+    Ok(Json(json!({
+        "success": true,
+        "status": "completed",
+        "data": data,
+        "sources": sources,
+    }))
+    .into_response())
+}
+
+fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
+    json!({
+        "markdown": response.markdown,
+        "html": response.html,
+        "rawHtml": response.raw_html,
+        "links": response.links,
+        "screenshot": response.screenshot,
+        "metadata": {
+            "title": response.metadata.title,
+            "language": response.metadata.language,
+            "sourceURL": response.url,
+            "url": response.final_url,
+            "statusCode": response.metadata.status_code,
+            "scrapeId": response.request_id,
+        }
+    })
+}
+
+fn firecrawl_crawl_status(response: CrawlStatusResponse) -> serde_json::Value {
+    json!({
+        "success": true,
+        "status": firecrawl_status(&response.status),
+        "total": response.total,
+        "completed": response.completed,
+        "creditsUsed": response.completed,
+        "data": response.data.into_iter().map(firecrawl_document).collect::<Vec<_>>(),
+        "next": serde_json::Value::Null,
+    })
+}
+
+fn firecrawl_status(status: &str) -> &str {
+    match status {
+        "queued" | "running" => "scraping",
+        other => other,
+    }
+}
+
+fn firecrawl_extract_schema(schema: &serde_json::Value) -> HashMap<String, String> {
+    let properties = schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .or_else(|| schema.as_object());
+    properties
+        .into_iter()
+        .flatten()
+        .map(|(name, definition)| {
+            let description = definition
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| definition.get("type").and_then(serde_json::Value::as_str))
+                .unwrap_or("string")
+                .to_string();
+            (name.clone(), description)
+        })
+        .collect()
 }
 
 fn extract_field(field: &str, text: &str, title: Option<String>) -> Option<String> {
@@ -273,6 +507,7 @@ pub enum ApiError {
     Crawl(CrawlStoreError),
     Llm(llm::LlmError),
     Unauthorized,
+    InvalidRequest(String),
     NotFound,
     Internal(String),
 }
@@ -339,6 +574,14 @@ impl IntoResponse for ApiError {
                         "message": "Invalid web extraction API key",
                         "retryable": false
                     }
+                })),
+            )
+                .into_response(),
+            Self::InvalidRequest(message) => (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": message,
                 })),
             )
                 .into_response(),
@@ -410,5 +653,44 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(error["detail"]["code"], "crawl_storage_unavailable");
+    }
+
+    #[test]
+    fn firecrawl_v2_crawl_accepts_camel_case_options() {
+        let request: FirecrawlV2CrawlRequest = serde_json::from_value(json!({
+            "url": "https://example.com",
+            "limit": 12,
+            "maxDiscoveryDepth": 4,
+            "allowSubdomains": true,
+            "ignoreQueryParameters": false,
+            "scrapeOptions": { "formats": ["markdown"], "waitFor": 250, "timeout": 45000 }
+        }))
+        .unwrap();
+        assert_eq!(request.max_discovery_depth, 4);
+        assert!(request.allow_subdomains);
+        let scrape = request.scrape_options.unwrap();
+        assert_eq!(scrape.wait_for_ms, 250);
+        assert_eq!(scrape.timeout, 45_000);
+    }
+
+    #[test]
+    fn firecrawl_v2_extract_keeps_json_schema_properties() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "name": { "type": ["string", "null"] },
+                "references": { "type": "array", "items": { "type": "object" } }
+            }
+        });
+        let fields = firecrawl_extract_schema(&schema);
+        assert!(fields.contains_key("name"));
+        assert!(fields.contains_key("references"));
+        assert!(!fields.contains_key("type"));
+    }
+
+    #[test]
+    fn queued_crawls_are_reported_as_firecrawl_scraping() {
+        assert_eq!(firecrawl_status("queued"), "scraping");
+        assert_eq!(firecrawl_status("completed"), "completed");
     }
 }

@@ -156,6 +156,26 @@ Per-request provider overrides are also supported with `provider` or `llm`:
 }
 ```
 
+### Firecrawl v2 compatibility
+
+The API also exposes Firecrawl v2-compatible routes for applications using
+`firecrawl-py` 4.x:
+
+```text
+POST   /v2/scrape
+POST   /v2/map
+POST   /v2/crawl
+GET    /v2/crawl/{id}
+DELETE /v2/crawl/{id}
+POST   /v2/extract
+```
+
+Set the Firecrawl SDK `api_url` to the BeeCrawl base URL. These routes accept
+Firecrawl camelCase request fields and return its `success` response envelope.
+The v2 extract adapter supports multiple URLs and JSON Schema objects. Search,
+batch scrape, crawl error listing, and usage-account endpoints are not yet part
+of the compatibility surface.
+
 ## Quick Start
 
 Start the Rust API:

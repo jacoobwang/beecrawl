@@ -147,6 +147,78 @@ pub async fn extract_structured_data(
     parse_extraction_json(content, schema)
 }
 
+pub async fn extract_structured_value(
+    client: &reqwest::Client,
+    provider: &ResolvedLlmProvider,
+    urls: &[String],
+    schema: &Value,
+    markdown: &str,
+    instructions: Option<&str>,
+) -> Result<Value, LlmError> {
+    let schema_json = serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
+    let request = ChatCompletionRequest {
+        model: provider.model.clone(),
+        messages: vec![
+            ChatMessage {
+                role: "system",
+                content: "You extract structured data from scraped web pages. Return only JSON matching the supplied JSON Schema. Use null when evidence is unavailable."
+                    .to_string(),
+            },
+            ChatMessage {
+                role: "user",
+                content: format!(
+                    "URLs:\n{}\n\nInstructions:\n{}\n\nJSON Schema:\n{}\n\nPage Markdown:\n{}",
+                    urls.join("\n"),
+                    instructions.unwrap_or("Extract factual information from the supplied pages."),
+                    schema_json,
+                    truncate_context(markdown),
+                ),
+            },
+        ],
+        temperature: 0.0,
+        response_format: Some(json!({ "type": "json_object" })),
+    };
+    let endpoint = chat_completions_url(&provider.base_url);
+    let response = client
+        .post(endpoint)
+        .bearer_auth(&provider.api_key)
+        .json(&request)
+        .send()
+        .await
+        .map_err(|err| LlmError::RequestFailed(err.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().await.unwrap_or_default();
+        return Err(LlmError::RequestFailed(format!(
+            "OpenAI-compatible API error ({status}): {body}"
+        )));
+    }
+    let body: ChatCompletionResponse = response
+        .json()
+        .await
+        .map_err(|err| LlmError::InvalidResponse(err.to_string()))?;
+    let content = body
+        .choices
+        .first()
+        .map(|choice| choice.message.content.trim())
+        .filter(|content| !content.is_empty())
+        .ok_or_else(|| LlmError::InvalidResponse("missing assistant content".to_string()))?;
+    parse_json_value(content)
+}
+
+fn parse_json_value(content: &str) -> Result<Value, LlmError> {
+    serde_json::from_str(content).or_else(|_| {
+        let start = content.find('{').ok_or_else(|| {
+            LlmError::InvalidResponse("response did not contain a JSON object".to_string())
+        })?;
+        let end = content.rfind('}').ok_or_else(|| {
+            LlmError::InvalidResponse("response did not contain a JSON object".to_string())
+        })?;
+        serde_json::from_str(&content[start..=end])
+            .map_err(|err| LlmError::InvalidResponse(err.to_string()))
+    })
+}
+
 fn build_extract_prompt(url: &str, schema: &HashMap<String, String>, markdown: &str) -> String {
     let schema_json = serde_json::to_string_pretty(schema).unwrap_or_else(|_| "{}".to_string());
     let context = truncate_context(markdown);
