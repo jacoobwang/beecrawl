@@ -3,7 +3,7 @@
 BeeCrawl uses Playwright rendering for automatic scrapes, with plain HTTP fetch
 as the fallback path when the browser path is unavailable or produces no
 content. The current design follows the shape of Firecrawl's Playwright
-microservice, but keeps the browser inside the API process for now.
+microservice: the Rust API calls the Python Bee Engine service over HTTP.
 
 ## Request Flow
 
@@ -32,10 +32,10 @@ fetch and lets the normal empty-content handling decide the final response.
 ## Browser Pool
 
 Browser rendering is implemented in
-`apps/api/beecrawl/web_extract/providers/browser.py`.
+`apps/bee-engine/bee_engine/browser.py`.
 
-The provider keeps one Chromium browser instance alive per API process. Each
-rendered request creates a fresh browser context and page:
+Bee Engine keeps one Chromium browser instance alive per process. Each rendered
+request creates a fresh browser context and page:
 
 1. Lazily start Playwright and launch Chromium on the first rendered request.
 2. Acquire a semaphore permit.
@@ -53,8 +53,9 @@ per-request cookies, storage, and page state isolated.
 
 ## Configuration
 
-`BEECRAWL_BROWSER_MAX_PAGES` controls concurrent rendered pages per API process.
-The default is `4`.
+`BEE_ENGINE_MAX_PAGES` controls concurrent rendered pages per Bee Engine process.
+The default is `4`. The Rust API uses `BEE_ENGINE_URL` to locate Bee Engine; the
+default is `http://127.0.0.1:8020`.
 
 Browser rendering requires the optional dependency and Chromium browser binary:
 
@@ -69,19 +70,19 @@ Firecrawl's Playwright implementation runs as a separate microservice. It keeps
 a global browser instance, creates a new context per request, uses a semaphore
 for concurrency, and closes the context after each scrape.
 
-BeeCrawl currently uses the same lifecycle model inside the API process. This is
-simpler to operate locally and avoids introducing a second service before the
-API needs separate browser workers.
+BeeCrawl uses the same lifecycle model in Bee Engine. The API service is Rust;
+the browser service stays Python so Playwright remains isolated behind an engine
+boundary.
 
 Firecrawl also has additional engines such as index, fire-engine, TLS client,
 and stealth proxy. BeeCrawl does not implement those yet.
 
 ## Known Limitations
 
-- Browser rendering shares CPU and memory with the API process.
-- A browser crash affects the current API worker process until the pool
+- Browser rendering requires running Bee Engine for browser-first scrapes.
+- A browser crash affects the current Bee Engine worker process until the pool
   relaunches Chromium.
-- There is no distributed browser capacity across API processes.
+- There is no distributed browser capacity across Bee Engine processes.
 - There is no proxy, stealth, persistent profile, action execution, screenshot,
   or selector-wait API yet.
 - The automatic path does not yet compare multiple successful engines or score
@@ -93,5 +94,4 @@ and stealth proxy. BeeCrawl does not implement those yet.
 - Add optional quality scoring if multiple successful engines are available.
 - Add optional `check_selector` support for pages that need a specific element.
 - Add explicit browser pool health and shutdown hooks.
-- Move browser rendering to a separate worker or microservice when process
-  isolation becomes more important than local simplicity.
+- Add Rust API fallback metadata that reports when Bee Engine was unavailable.

@@ -1,0 +1,24 @@
+[package]
+name = "beecrawl-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+html-escape = "0.2"
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
+scraper = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.42", features = ["macros", "rt-multi-thread"] }
+tower-http = { version = "0.6", features = ["trace"] }
+url = "2.5"
+uuid = { version = "1.11", features = ["v4"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }

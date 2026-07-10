@@ -7,6 +7,10 @@ scraping and structured extraction, then leaves clear extension points for
 browser rendering, queue-backed crawls, LLM extraction, and source-specific
 providers.
 
+The API service is implemented in Rust. Browser rendering lives in the Python
+Bee Engine service because Playwright's Python runtime is still the friendlier
+browser automation boundary for this project.
+
 ## Goals
 
 - Crawl web pages and return clean, useful content.
@@ -85,28 +89,24 @@ page parsing; an LLM-backed extractor can be added behind the same contract.
 
 ## Quick Start
 
+Start the Rust API:
+
 ```bash
-uv venv
-uv pip install -e ".[dev]"
 make api
 ```
 
-Browser rendering for `use_browser: "auto"` is optional:
+Browser rendering for `use_browser: "auto"` is provided by the Python Bee
+Engine service:
 
 ```bash
 uv pip install -e ".[browser]"
 .venv/bin/playwright install chromium
-```
-
-Browser rendering reuses an in-process Chromium instance and creates an
-isolated context per request. Set `BEECRAWL_BROWSER_MAX_PAGES` to control
-concurrent rendered pages; the default is `4`.
-
-Bee Engine can also be started as a standalone browser rendering service:
-
-```bash
 make bee-engine
 ```
+
+Browser rendering runs in Bee Engine. It reuses a Chromium instance and creates
+an isolated context per request. Set `BEE_ENGINE_MAX_PAGES` to control
+concurrent rendered pages; the default is `4`.
 
 It exposes Fire Engine-style endpoints on port `8020` by default:
 
@@ -127,7 +127,7 @@ curl -X POST http://127.0.0.1:8000/scrape \
 ## Repository Layout
 
 ```text
-apps/api      API and worker package
+apps/api      Rust API package
 apps/bee-engine  Browser rendering service
 apps/*-sdk    SDK packages
 ```

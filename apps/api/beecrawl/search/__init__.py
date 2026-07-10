@@ -1,1 +1,0 @@
-"""Keyword search service primitives."""

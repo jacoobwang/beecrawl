@@ -33,11 +33,11 @@ line-length = 100
 target-version = "py311"
 
 [tool.setuptools.package-dir]
-"" = "apps/api"
+"" = "apps/bee-engine"
 
 [tool.setuptools.packages.find]
-where = ["apps/api"]
+where = ["apps/bee-engine"]
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "apps/bee-engine/tests"]
-pythonpath = ["apps/api", "apps/bee-engine"]
+testpaths = ["apps/bee-engine/tests"]
+pythonpath = ["apps/bee-engine"]
