@@ -4,7 +4,7 @@ PORT ?= 8000
 BEE_ENGINE_PORT ?= 8020
 UV ?= uv
 
-.PHONY: install db-up db-down api worker migrate bee-engine playwright-install test lint rust-test rust-lint python-test python-lint
+.PHONY: install db-up db-down api worker migrate-up bee-engine playwright-install test lint rust-test rust-lint python-test python-lint
 
 install:
 	$(UV) sync --extra dev --extra browser
@@ -21,7 +21,7 @@ api:
 worker:
 	$(CARGO) run -p beecrawl-api --bin worker
 
-migrate:
+migrate-up:
 	$(CARGO) run -p beecrawl-api --bin migrate
 
 bee-engine:

@@ -142,6 +142,7 @@ run the worker separately. API startup applies the bundled SQL migration.
 ```bash
 make db-up
 export BEECRAWL_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/beecrawl
+make migrate-up
 make api
 ```
 
