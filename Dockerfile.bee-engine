@@ -1,16 +1,20 @@
 # syntax=docker/dockerfile:1.7
 
-# The Playwright base image includes browser system dependencies and a pinned
-# Chromium bundle. Keep the version aligned with pyproject.toml when upgrading.
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY apps/bee-engine ./apps/bee-engine
 
-RUN pip install --no-cache-dir '.[browser]' \
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && pip install --no-cache-dir '.[browser]' \
+    && python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin beecrawl \
-    && chown -R 10001:10001 /app /home/beecrawl
+    && chown -R 10001:10001 /app /home/beecrawl /ms-playwright
 
 ENV HOME=/home/beecrawl
 ENV PYTHONUNBUFFERED=1
