@@ -209,17 +209,17 @@ DELETE /scrape/{job_id}
 
 ### Python SDK
 
-The HTTP-only Python SDK is available under `apps/python-sdk`:
+The HTTP-only Python SDK is available under `apps/sdk/python`:
 
 ```bash
-uv pip install -e apps/python-sdk
+uv pip install -e apps/sdk/python
 ```
 
 It provides synchronous and asynchronous clients for `/scrape`, `/map`,
 `/search`, `/extract`, `/crawl`, and `/batch/scrape`. The SDK does not run a
 browser locally; browser rendering and workers stay on the BeeCrawl server.
 
-An asynchronous Rust SDK is available under `apps/rust-sdk` and can be added
+An asynchronous Rust SDK is available under `apps/sdk/rust` and can be added
 as the `beecrawl-sdk` Cargo dependency.
 
 Then open:
@@ -235,7 +235,8 @@ curl -X POST http://127.0.0.1:8000/scrape \
 ```text
 apps/api      Rust API package
 apps/bee-engine  Browser rendering service
-apps/*-sdk    SDK packages
+apps/sdk/python  Python SDK package
+apps/sdk/rust    Rust SDK crate
 ```
 
 ## Roadmap

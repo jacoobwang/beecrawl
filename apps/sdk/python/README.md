@@ -7,13 +7,13 @@ BeeCrawl server.
 ## Install
 
 ```bash
-uv add beecrawl-sdk
+uv add beecrawl-py
 ```
 
 For local development:
 
 ```bash
-uv pip install -e apps/python-sdk
+uv pip install -e apps/sdk/python
 ```
 
 ## Usage
