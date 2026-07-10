@@ -23,7 +23,7 @@ pub struct WebExtractLocation {
     pub languages: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct WebExtractScrapeResponse {
     pub request_id: String,
     pub url: String,
@@ -32,7 +32,7 @@ pub struct WebExtractScrapeResponse {
     pub metadata: WebExtractMetadata,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct WebExtractMetadata {
     pub title: Option<String>,
     pub language: Option<String>,
@@ -71,6 +71,54 @@ pub struct WebExtractMapMetadata {
     pub provider: String,
     pub count: usize,
     pub elapsed_ms: Option<u128>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct CrawlRequest {
+    pub url: String,
+    #[serde(default = "default_crawl_limit")]
+    pub limit: usize,
+    #[serde(rename = "maxDepth", default = "default_crawl_max_depth")]
+    pub max_depth: usize,
+    #[serde(rename = "includeSubdomains", default)]
+    pub include_subdomains: bool,
+    #[serde(
+        rename = "ignoreQueryParameters",
+        default = "default_ignore_query_parameters"
+    )]
+    pub ignore_query_parameters: bool,
+    #[serde(default = "default_timeout_seconds")]
+    pub timeout_seconds: u64,
+    #[serde(rename = "waitFor", default)]
+    pub wait_for_ms: u64,
+    #[serde(rename = "useBrowser", default = "default_use_browser")]
+    pub use_browser: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CrawlEnqueueResponse {
+    pub id: String,
+    pub url: String,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CrawlStatusResponse {
+    pub id: String,
+    pub url: String,
+    pub status: String,
+    pub total: usize,
+    pub completed: usize,
+    pub failed: usize,
+    pub data: Vec<WebExtractScrapeResponse>,
+    pub errors: Vec<CrawlError>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CrawlError {
+    pub url: String,
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,6 +269,14 @@ fn default_use_browser() -> String {
 
 fn default_map_limit() -> usize {
     100
+}
+
+fn default_crawl_limit() -> usize {
+    100
+}
+
+fn default_crawl_max_depth() -> usize {
+    2
 }
 
 fn default_sitemap() -> String {

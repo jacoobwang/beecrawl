@@ -1,3 +1,4 @@
+pub mod crawl;
 pub mod llm;
 pub mod models;
 pub mod routes;

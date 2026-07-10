@@ -10,28 +10,74 @@ use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
-    ExtractMetadata, ExtractRequest, ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest,
-    WebExtractScrapeRequest,
+    CrawlEnqueueResponse, CrawlRequest, CrawlStatusResponse, ExtractMetadata, ExtractRequest,
+    ExtractResponse, Link, ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest,
 };
-use crate::{llm, search, web_extract};
+use crate::{crawl::CrawlStore, llm, search, web_extract};
 
 #[derive(Clone)]
 struct AppState {
     client: reqwest::Client,
+    crawls: CrawlStore,
 }
 
 pub fn app() -> Router {
     let state = AppState {
         client: reqwest::Client::new(),
+        crawls: CrawlStore::default(),
     };
     Router::new()
         .route("/health", get(health))
         .route("/scrape", post(scrape))
+        .route("/crawl", post(crawl))
+        .route("/crawl/:id", get(crawl_status).delete(cancel_crawl))
         .route("/map", post(map_site))
         .route("/search", post(search_route))
         .route("/extract", post(extract))
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(state))
+}
+
+async fn crawl(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<CrawlRequest>,
+) -> Result<Json<CrawlEnqueueResponse>, ApiError> {
+    require_auth(&headers)?;
+    state
+        .crawls
+        .enqueue(state.client.clone(), request)
+        .await
+        .map(Json)
+        .map_err(ApiError::from)
+}
+
+async fn crawl_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<CrawlStatusResponse>, ApiError> {
+    require_auth(&headers)?;
+    state
+        .crawls
+        .get(&id)
+        .await
+        .map(Json)
+        .ok_or(ApiError::NotFound)
+}
+
+async fn cancel_crawl(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<CrawlStatusResponse>, ApiError> {
+    require_auth(&headers)?;
+    state
+        .crawls
+        .cancel(&id)
+        .await
+        .map(Json)
+        .ok_or(ApiError::NotFound)
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -195,6 +241,7 @@ pub enum ApiError {
     WebExtract(web_extract::WebExtractError),
     Llm(llm::LlmError),
     Unauthorized,
+    NotFound,
     Internal(String),
 }
 
@@ -246,6 +293,17 @@ impl IntoResponse for ApiError {
                 })),
             )
                 .into_response(),
+            Self::NotFound => (
+                StatusCode::NOT_FOUND,
+                Json(json!({
+                    "detail": {
+                        "code": "crawl_not_found",
+                        "message": "Crawl job not found",
+                        "retryable": false
+                    }
+                })),
+            )
+                .into_response(),
             Self::Internal(message) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "detail": message })),
@@ -262,7 +320,7 @@ fn _link(text: String, url: String) -> Link {
 
 #[cfg(test)]
 mod tests {
-    use axum::body::Body;
+    use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
@@ -282,5 +340,41 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn crawl_routes_submit_and_cancel_jobs() {
+        let app = app();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/crawl")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"url":"https://example.invalid","limit":1}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let submitted: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = submitted["id"].as_str().unwrap();
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/crawl/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let cancelled: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(cancelled["status"], "cancelled");
     }
 }

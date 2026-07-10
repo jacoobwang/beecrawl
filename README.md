@@ -54,6 +54,22 @@ Returns `request_id`, `final_url`, `markdown`, and provider metadata. Set
 
 Discovers same-site URLs from sitemap first, then page links.
 
+### `POST /crawl`
+
+```json
+{
+  "url": "https://example.com",
+  "limit": 100,
+  "maxDepth": 2,
+  "useBrowser": "auto"
+}
+```
+
+Starts an asynchronous, same-site crawl. Poll `GET /crawl/{id}` for progress
+and collected pages, or use `DELETE /crawl/{id}` to request cancellation. Crawl
+jobs are currently stored in API process memory; restarting the API removes
+their status and results.
+
 ### `POST /search`
 
 ```json
