@@ -18,6 +18,64 @@ const endpoints = [
     copy: "Define the fields you need and get consistent extraction output.",
   },
 ];
+
+const codeExamples = [
+  {
+    id: "python",
+    label: "Python SDK",
+    filename: "request.py",
+    code: `from beecrawl_sdk import BeeCrawlClient
+
+with BeeCrawlClient(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.beecrawl.dev",
+) as client:
+    page = client.scrape(
+        "https://example.com",
+        formats=["markdown", "links"],
+        use_browser="auto",
+    )
+
+print(page["markdown"])`,
+  },
+  {
+    id: "rust",
+    label: "Rust SDK",
+    filename: "main.rs",
+    code: `use beecrawl_sdk::BeeCrawlClient;
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> beecrawl_sdk::Result<()> {
+    let client = BeeCrawlClient::builder(
+        "https://api.beecrawl.dev",
+    )
+    .api_key("YOUR_API_KEY")
+    .build()?;
+
+    let page = client.scrape(
+        "https://example.com",
+        json!({"formats": ["markdown", "links"]}),
+    ).await?;
+
+    println!("{}", page["markdown"]);
+    Ok(())
+}`,
+  },
+  {
+    id: "curl",
+    label: "cURL",
+    filename: "terminal",
+    code: `curl -X POST https://api.beecrawl.dev/scrape \\
+  -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "url": "https://example.com",
+    "formats": ["markdown", "links"],
+    "use_browser": "auto"
+  }'`,
+  },
+];
 ---
 
 <!doctype html>
@@ -99,27 +157,28 @@ response  ready  response  ready</pre>
           <div class="code-showcase-heading">
             <p class="kicker">One request, useful output</p>
           </div>
-          <div class="code-workbench">
+          <div class="code-workbench" data-code-workbench>
             <div class="code-toolbar">
-              <span class="code-language">Python SDK</span>
+              <div class="code-tabs" role="tablist" aria-label="Code examples">
+                {codeExamples.map((example, index) => (
+                  <button
+                    class:list={["code-tab", { "is-active": index === 0 }]}
+                    type="button"
+                    role="tab"
+                    aria-selected={index === 0 ? "true" : "false"}
+                    data-code-tab={example.id}
+                    data-filename={example.filename}
+                  >
+                    {example.label}
+                  </button>
+                ))}
+              </div>
               <span>POST /scrape</span>
             </div>
             <div class="code-grid">
               <div class="code-pane" aria-label="BeeCrawl Python SDK example">
-                <div class="pane-label"><span class="live-dot" aria-hidden="true"></span> request.py</div>
-                <pre><code>{`from beecrawl_sdk import BeeCrawlClient
-
-with BeeCrawlClient(
-    api_key="YOUR_API_KEY",
-    base_url="https://api.beecrawl.dev",
-) as client:
-    page = client.scrape(
-        "https://example.com",
-        formats=["markdown", "links"],
-        use_browser="auto",
-    )
-
-print(page["markdown"])`}</code></pre>
+                <div class="pane-label"><span class="live-dot" aria-hidden="true"></span> <span data-code-filename>request.py</span></div>
+                <pre>{codeExamples.map((example, index) => <code data-code-example={example.id} hidden={index !== 0}>{example.code}</code>)}</pre>
               </div>
               <div class="result-pane" aria-label="Fixed BeeCrawl scrape result">
                 <div class="pane-label"><span class="result-dot" aria-hidden="true"></span> markdown</div>
@@ -140,6 +199,34 @@ status: 200`}</code></pre>
           </div>
         </div>
       </section>
+
+      <script>
+        const workbench = document.querySelector("[data-code-workbench]");
+
+        if (workbench) {
+          const tabs = Array.from(workbench.querySelectorAll<HTMLButtonElement>("[data-code-tab]"));
+          const examples = Array.from(workbench.querySelectorAll<HTMLElement>("[data-code-example]"));
+          const filename = workbench.querySelector<HTMLElement>("[data-code-filename]");
+
+          for (const tab of tabs) {
+            tab.addEventListener("click", () => {
+              const selected = tab.dataset.codeTab;
+
+              for (const candidate of tabs) {
+                const isSelected = candidate === tab;
+                candidate.classList.toggle("is-active", isSelected);
+                candidate.setAttribute("aria-selected", String(isSelected));
+              }
+
+              for (const example of examples) {
+                example.hidden = example.dataset.codeExample !== selected;
+              }
+
+              if (filename) filename.textContent = tab.dataset.filename ?? "request";
+            });
+          }
+        }
+      </script>
 
       <section class="statement shell" aria-labelledby="statement-heading">
         <p class="kicker">Built for real workflows</p>
