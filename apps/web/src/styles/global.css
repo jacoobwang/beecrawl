@@ -23,13 +23,13 @@ a { color: inherit; text-decoration: none; }
 
 .site-header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: rgba(8, 11, 10, .96); }
 .nav { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.brand { display: inline-flex; align-items: center; gap: 3px; font: 800 20px/1 Arial, Helvetica, sans-serif; letter-spacing: 0; }.brand-mark { color: var(--lime); }
-.bee { position: relative; display: inline-grid; place-items: center; width: 26px; height: 23px; margin-left: 3px; isolation: isolate; animation: bee-hover 2.8s ease-in-out infinite; }
+.brand { position: relative; display: inline-block; overflow: visible; font: 800 20px/1 Arial, Helvetica, sans-serif; letter-spacing: 0; }.brand-copy { position: relative; z-index: 1; }.brand-mark { color: var(--lime); }
+.bee { position: absolute; z-index: 3; top: 50%; left: -22px; display: inline-grid; place-items: center; width: 26px; height: 23px; isolation: isolate; pointer-events: none; animation: bee-fly-across 4.6s ease-in-out infinite; }
 .bee-body { position: relative; z-index: 2; font-size: 18px; line-height: 1; transform: translateY(1px); }
 .bee-wing { position: absolute; z-index: 1; top: 3px; width: 12px; height: 8px; border: 1px solid rgba(243, 242, 234, .72); border-radius: 80% 25% 80% 25%; background: rgba(201, 237, 72, .24); transform-origin: bottom center; }
 .bee-wing-left { left: 1px; animation: wing-flap-left 160ms ease-in-out infinite alternate; }
 .bee-wing-right { right: 1px; transform: scaleX(-1); animation: wing-flap-right 160ms ease-in-out infinite alternate; }
-@keyframes bee-hover { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
+@keyframes bee-fly-across { 0% { left: -22px; transform: translateY(-55%) rotate(-4deg); } 46% { left: calc(100% - 8px); transform: translateY(-68%) rotate(4deg); } 50% { left: calc(100% - 8px); transform: translateY(-45%) scaleX(-1) rotate(4deg); } 96% { left: -22px; transform: translateY(-68%) scaleX(-1) rotate(-4deg); } 100% { left: -22px; transform: translateY(-55%) rotate(-4deg); } }
 @keyframes wing-flap-left { from { transform: rotate(-20deg) scaleY(.72); } to { transform: rotate(24deg) scaleY(1.05); } }
 @keyframes wing-flap-right { from { transform: scaleX(-1) rotate(-20deg) scaleY(.72); } to { transform: scaleX(-1) rotate(24deg) scaleY(1.05); } }
 @media (prefers-reduced-motion: reduce) { .bee, .bee-wing { animation: none; } }
