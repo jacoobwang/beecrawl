@@ -1,0 +1,144 @@
+---
+import "../styles/global.css";
+
+const endpoints = [
+  {
+    method: "POST",
+    path: "/scrape",
+    title: "Scrape a page",
+    description: "Fetch a page and return clean Markdown, metadata, links, HTML, or a screenshot.",
+    request: `{
+  "url": "https://example.com",
+  "formats": ["markdown", "links"],
+  "use_browser": "auto",
+  "timeout_seconds": 30
+}`,
+    response: `{
+  "request_id": "req_123",
+  "final_url": "https://example.com",
+  "markdown": "# Example Domain...",
+  "links": ["https://www.iana.org/domains/example"],
+  "metadata": { "status_code": 200, "rendered": false }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/map",
+    title: "Map a site",
+    description: "Discover same-site URLs from the sitemap and page links.",
+    request: `{
+  "url": "https://example.com",
+  "limit": 100,
+  "includeSubdomains": false
+}`,
+    response: `{
+  "request_id": "req_123",
+  "url": "https://example.com",
+  "links": ["https://example.com/docs"],
+  "metadata": { "count": 1 }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/search",
+    title: "Search the web",
+    description: "Search by keyword and optionally scrape the returned pages.",
+    request: `{
+  "query": "thermal interface material suppliers",
+  "limit": 5,
+  "scrapeOptions": { "formats": ["markdown"] }
+}`,
+    response: `{
+  "requestId": "req_123",
+  "data": [{ "url": "https://example.com", "title": "Example" }],
+  "metadata": { "total": 1 }
+}`,
+  },
+  {
+    method: "POST",
+    path: "/extract",
+    title: "Extract structured data",
+    description: "Turn page content into a predictable JSON object using a field description or schema.",
+    request: `{
+  "url": "https://example.com",
+  "schema": {
+    "company": "Company name",
+    "email": "Contact email"
+  }
+}`,
+    response: `{
+  "request_id": "req_123",
+  "data": { "company": "Example Inc.", "email": null },
+  "metadata": { "provider": "deterministic" }
+}`,
+  },
+];
+
+const asyncEndpoints = [
+  ["POST", "/crawl", "Start an asynchronous same-site crawl."],
+  ["GET", "/crawl/:id", "Poll status and paginated results."],
+  ["DELETE", "/crawl/:id", "Request crawl cancellation."],
+  ["POST", "/batch/scrape", "Start a batch scrape for independent URLs."],
+  ["GET", "/batch/scrape/:id", "Poll batch status and results."],
+  ["DELETE", "/batch/scrape/:id", "Request batch cancellation."],
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content="BeeCrawl API documentation and endpoint reference." />
+    <title>API Docs | BeeCrawl</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Primary navigation">
+        <a class="brand" href="/"><span class="bee" aria-hidden="true"><span class="bee-wing bee-wing-left"></span><span class="bee-wing bee-wing-right"></span><span class="bee-body">🐝</span></span><span class="brand-copy">BeeCrawl<span class="brand-mark">.</span></span></a>
+        <div class="nav-links"><a href="/#features">Capabilities</a><a class="nav-current" href="/docs">API docs</a><a href="https://github.com/jacoobwang/beecrawl">GitHub</a></div>
+        <a class="nav-cta" href="https://github.com/jacoobwang/beecrawl">Get started <span aria-hidden="true">-&gt;</span></a>
+      </nav>
+    </header>
+
+    <main class="docs-page">
+      <section class="docs-hero">
+        <div class="shell docs-hero-inner">
+          <p class="kicker">API reference / v0.1</p>
+          <h1>Build with <em>BeeCrawl</em></h1>
+          <p class="lede">A small, self-hostable API for extracting useful data from the web. All endpoints return JSON and accept a JSON request body.</p>
+          <div class="docs-actions"><a class="button button-dark" href="https://github.com/jacoobwang/beecrawl">View source <span aria-hidden="true">-&gt;</span></a><a class="text-link" href="#authentication">Authentication <span aria-hidden="true">-&gt;</span></a></div>
+        </div>
+      </section>
+
+      <section id="authentication" class="docs-section docs-intro">
+        <div class="shell docs-two-column">
+          <div><p class="kicker">01 / Getting started</p><h2>One base URL.<br /><em>One header.</em></h2></div>
+          <div class="docs-copy"><p>Send your API key in <code>X-Web-Extract-Api-Key</code>, <code>X-Api-Key</code>, or as a bearer token. Authentication is optional when the server is not configured with an API key.</p><pre><code>curl https://api.beecrawl.dev/scrape \\
+  -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
+  -H "Content-Type: application/json"</code></pre><p class="docs-note">Set <code>BEECRAWL_WEB_EXTRACT_API_KEY</code> or <code>WEB_EXTRACT_API_KEY</code> on the API service to require authentication.</p></div>
+        </div>
+      </section>
+
+      <section class="docs-section endpoint-section" aria-labelledby="endpoint-heading">
+        <div class="shell"><div class="docs-section-heading"><div><p class="kicker">02 / Core endpoints</p><h2 id="endpoint-heading">The API surface</h2></div><p>Use the native routes for the smallest request and response shapes. Replace the host with your own deployment when self-hosting.</p></div>
+          <div class="endpoint-list">
+            {endpoints.map((endpoint, index) => <article class="endpoint-card" id={endpoint.path.slice(1)}><div class="endpoint-heading"><span class="endpoint-index">0{index + 1}</span><span class:list={["method", `method-${endpoint.method.toLowerCase()}`]}>{endpoint.method}</span><code>{endpoint.path}</code><h3>{endpoint.title}</h3><p>{endpoint.description}</p></div><div class="endpoint-code"><div><span class="pane-label">Request body</span><pre><code>{endpoint.request}</code></pre></div><div><span class="pane-label">Response body</span><pre><code>{endpoint.response}</code></pre></div></div></article>)}
+          </div>
+        </div>
+      </section>
+
+      <section class="docs-section docs-intro async-section">
+        <div class="shell docs-two-column"><div><p class="kicker">03 / Async jobs</p><h2>For the bigger<br /><em>workloads</em></h2></div><div class="docs-copy"><p>Crawls and batch scrapes return an <code>id</code> immediately. Poll the matching status endpoint with <code>?offset=0&amp;limit=20</code> to read progress and paginated results.</p><div class="async-table">{asyncEndpoints.map(([method, path, description]) => <div><span class:list={["method", `method-${method.toLowerCase()}`]}>{method}</span><code>{path}</code><span>{description}</span></div>)}</div></div></div>
+      </section>
+
+      <section class="docs-section compatibility-section"><div class="shell docs-two-column"><div><p class="kicker">04 / Compatibility</p><h2>Already using<br /><em>Firecrawl?</em></h2></div><div class="docs-copy"><p>BeeCrawl also exposes Firecrawl v2-compatible routes for scrape, map, crawl, extract, and search. Set your SDK <code>api_url</code> to the BeeCrawl base URL and keep your existing integration.</p><pre><code>POST /v2/scrape
+POST /v2/map
+POST /v2/crawl
+POST /v2/extract
+POST /v2/search</code></pre><a class="text-link" href="/">Back to homepage <span aria-hidden="true">-&gt;</span></a></div></div></section>
+    </main>
+
+    <footer class="site-footer"><div class="shell footer-inner"><a class="brand" href="/"><span class="bee" aria-hidden="true"><span class="bee-wing bee-wing-left"></span><span class="bee-wing bee-wing-right"></span><span class="bee-body">🐝</span></span><span class="brand-copy">BeeCrawl<span class="brand-mark">.</span></span></a><p>Open-source web data infrastructure.</p><a href="https://github.com/jacoobwang/beecrawl">GitHub</a></div></footer>
+  </body>
+</html>
