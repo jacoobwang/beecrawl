@@ -152,6 +152,12 @@ const highlightedResult = await codeToHtml(resultExample, {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:image" content="/og.png" />
     <title>BeeCrawl | Web data, made useful.</title>
+    <style>
+      .footer-legal { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 0 26px; border-top: 1px solid var(--line); color: var(--muted); font: 700 10px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .07em; text-transform: uppercase; }
+      .footer-legal-links { display: flex; gap: 36px; }
+      .footer-legal a:hover { color: var(--lime); }
+      @media (max-width: 600px) { .footer-legal { align-items: flex-start; flex-direction: column; gap: 16px; }.footer-legal-links { gap: 20px; } }
+    </style>
   </head>
   <body>
     <div class="release-banner">
@@ -324,6 +330,10 @@ POST /v2/search</code></pre></div></div></section>
         <p>Open-source web data infrastructure.</p>
         <a href={docsUrl}>API docs</a>
         <a href="https://github.com/jacoobwang/beecrawl">GitHub</a>
+      </div>
+      <div class="footer-legal shell">
+        <span>© 2026 BeeCrawl, Inc. All rights reserved.</span>
+        <div class="footer-legal-links"><a href="/privacy-policy">Privacy policy</a><a href="/terms-of-service">Terms of service</a></div>
       </div>
     </footer>
   </body>
