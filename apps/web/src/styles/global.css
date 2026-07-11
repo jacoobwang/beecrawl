@@ -72,7 +72,10 @@ h1 em { color: var(--lime); font-family: Georgia, serif; font-weight: 400; }.led
 .code-highlight[hidden] { display: none; }
 .code-highlight pre { min-height: 360px; margin: 0; padding: 26px 28px; overflow-x: auto; color: #e5ebe2; background: transparent !important; font: 13px/1.72 "SFMono-Regular", Consolas, monospace; }
 .code-highlight code { display: block; width: max-content; min-width: 100%; }.result-pane { background: #0d120f; }.result-pane .code-highlight pre { color: #cfd7cb; }.result-pane code { white-space: pre; }
-.code-compatibility { max-width: 720px; margin: 30px 0 0; color: var(--muted); font-size: 18px; line-height: 1.55; }
+.code-compatibility { display: grid; grid-template-columns: 220px minmax(0, 720px); gap: 28px; margin: 30px 0 0; color: var(--muted); font-size: 18px; line-height: 1.55; }
+.code-compatibility p { margin: 0; }
+.code-compatibility-label { color: var(--amber); font: 700 10px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+.code-compatibility-label::before { display: inline-block; width: 8px; height: 8px; margin: 0 9px 0 1px; background: var(--lime); content: ""; }
 .code-compatibility code { color: var(--lime); font: 700 14px/1 "SFMono-Regular", Consolas, monospace; }
 
 .free-cta { position: relative; overflow: hidden; background: #101411; }
