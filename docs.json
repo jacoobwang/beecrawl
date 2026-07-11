@@ -10,12 +10,12 @@
   },
   "appearance": {
     "default": "light",
-    "strict": true
+    "strict": false
   },
   "background": {
     "color": {
       "light": "#f4f7f1",
-      "dark": "#f4f7f1"
+      "dark": "#0b100d"
     }
   },
   "navigation": {
