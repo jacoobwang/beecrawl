@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
+    "node-sdk:build": "pnpm --filter beecrawl-sdk build",
+    "node-sdk:test": "pnpm --filter beecrawl-sdk test",
     "web:dev": "pnpm --filter @beecrawl/web dev",
     "web:build": "pnpm --filter @beecrawl/web build"
   }

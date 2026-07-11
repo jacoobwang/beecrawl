@@ -41,6 +41,28 @@ page = client.scrape(
 print(page["markdown"])`,
   },
   {
+    id: "node",
+    label: "Node SDK",
+    filename: "request.js",
+    language: "js",
+    code: `import { BeeCrawlClient } from "beecrawl-sdk";
+
+const client = new BeeCrawlClient({
+  apiKey: "YOUR_API_KEY",
+  baseUrl: "https://api.beecrawl.dev",
+});
+
+const page = await client.scrape(
+  "https://example.com",
+  {
+    formats: ["markdown", "links"],
+    use_browser: "auto",
+  },
+);
+
+console.log(page.markdown);`,
+  },
+  {
     id: "rust",
     label: "Rust SDK",
     filename: "main.rs",

@@ -242,6 +242,32 @@ It provides synchronous and asynchronous clients for `/scrape`, `/map`,
 `/search`, `/extract`, `/crawl`, and `/batch/scrape`. The SDK does not run a
 browser locally; browser rendering and workers stay on the BeeCrawl server.
 
+### Node.js SDK
+
+The Node.js SDK is available under `apps/sdk/node`:
+
+```bash
+pnpm --filter beecrawl-sdk build
+```
+
+It provides a TypeScript client for `/scrape`, `/map`, `/search`, `/extract`,
+`/crawl`, and `/batch/scrape` using Node 18+ native `fetch`.
+
+```js
+import { BeeCrawlClient } from "beecrawl-sdk";
+
+const client = new BeeCrawlClient({
+  apiKey: "your-key",
+  baseUrl: "https://api.beecrawl.dev",
+});
+
+const page = await client.scrape("https://example.com", {
+  formats: ["markdown", "links"],
+});
+```
+
+### Rust SDK
+
 An asynchronous Rust SDK is available under `apps/sdk/rust` and can be added
 as the `beecrawl-sdk` Cargo dependency.
 
@@ -258,6 +284,7 @@ curl -X POST http://127.0.0.1:8000/scrape \
 ```text
 apps/api      Rust API package
 apps/bee-engine  Browser rendering service
+apps/sdk/node    Node.js SDK package
 apps/sdk/python  Python SDK package
 apps/sdk/rust    Rust SDK crate
 ```
