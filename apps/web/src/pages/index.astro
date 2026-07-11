@@ -70,7 +70,7 @@ response  ready  response  ready</pre>
             <p class="kicker">The open-source web data API</p>
             <h1>Make the web <em>agent-ready</em></h1>
             <p class="lede">
-              Crawl, scrape, map, search, and extract reliable web data with one composable API.
+              An open-source Firecrawl alternative for scraping, crawling, and structured web data.
             </p>
             <div class="actions">
               <a class="button button-dark" href="https://github.com/jacoobwang/beecrawl">Start with BeeCrawl <span aria-hidden="true">-&gt;</span></a>
@@ -89,6 +89,53 @@ response  ready  response  ready</pre>
               <div><span>01</span><strong>Scrape</strong><p>Single-page extraction.</p></div>
               <div><span>02</span><strong>Crawl</strong><p>Site-level collection.</p></div>
               <div><span>03</span><strong>Extract</strong><p>Structured output.</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="code-showcase" aria-labelledby="code-heading">
+        <div class="shell">
+          <div class="code-showcase-heading">
+            <p class="kicker">One request, useful output</p>
+          </div>
+          <div class="code-workbench">
+            <div class="code-toolbar">
+              <span class="code-language">Python SDK</span>
+              <span>POST /scrape</span>
+            </div>
+            <div class="code-grid">
+              <div class="code-pane" aria-label="BeeCrawl Python SDK example">
+                <div class="pane-label"><span class="live-dot" aria-hidden="true"></span> request.py</div>
+                <pre><code>{`from beecrawl_sdk import BeeCrawlClient
+
+with BeeCrawlClient(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.beecrawl.dev",
+) as client:
+    page = client.scrape(
+        "https://example.com",
+        formats=["markdown", "links"],
+        use_browser="auto",
+    )
+
+print(page["markdown"])`}</code></pre>
+              </div>
+              <div class="result-pane" aria-label="Fixed BeeCrawl scrape result">
+                <div class="pane-label"><span class="result-dot" aria-hidden="true"></span> markdown</div>
+                <pre><code>{`# Example Domain
+
+Example Domain is for use in illustrative
+examples in documents and applications.
+
+## Links
+
+- https://www.iana.org/domains/example
+
+---
+source: https://example.com
+status: 200`}</code></pre>
+              </div>
             </div>
           </div>
         </div>
