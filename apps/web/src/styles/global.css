@@ -23,7 +23,16 @@ a { color: inherit; text-decoration: none; }
 
 .site-header { position: sticky; top: 0; z-index: 10; border-bottom: 1px solid var(--line); background: rgba(8, 11, 10, .96); }
 .nav { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
-.brand { font: 800 20px/1 Arial, Helvetica, sans-serif; letter-spacing: 0; }.brand-mark { color: var(--lime); }
+.brand { display: inline-flex; align-items: center; gap: 3px; font: 800 20px/1 Arial, Helvetica, sans-serif; letter-spacing: 0; }.brand-mark { color: var(--lime); }
+.bee { position: relative; display: inline-grid; place-items: center; width: 26px; height: 23px; margin-left: 3px; isolation: isolate; animation: bee-hover 2.8s ease-in-out infinite; }
+.bee-body { position: relative; z-index: 2; font-size: 18px; line-height: 1; transform: translateY(1px); }
+.bee-wing { position: absolute; z-index: 1; top: 3px; width: 12px; height: 8px; border: 1px solid rgba(243, 242, 234, .72); border-radius: 80% 25% 80% 25%; background: rgba(201, 237, 72, .24); transform-origin: bottom center; }
+.bee-wing-left { left: 1px; animation: wing-flap-left 160ms ease-in-out infinite alternate; }
+.bee-wing-right { right: 1px; transform: scaleX(-1); animation: wing-flap-right 160ms ease-in-out infinite alternate; }
+@keyframes bee-hover { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
+@keyframes wing-flap-left { from { transform: rotate(-20deg) scaleY(.72); } to { transform: rotate(24deg) scaleY(1.05); } }
+@keyframes wing-flap-right { from { transform: scaleX(-1) rotate(-20deg) scaleY(.72); } to { transform: scaleX(-1) rotate(24deg) scaleY(1.05); } }
+@media (prefers-reduced-motion: reduce) { .bee, .bee-wing { animation: none; } }
 .nav-links { display: flex; align-items: center; gap: 28px; color: var(--muted); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }.nav-links a:hover, .site-footer a:hover { color: var(--lime); }
 .nav-cta { padding: 11px 14px; border: 1px solid var(--lime); color: var(--lime); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }.nav-cta:hover { color: var(--bg); background: var(--lime); }
 
