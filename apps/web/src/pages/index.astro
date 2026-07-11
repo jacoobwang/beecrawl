@@ -59,8 +59,37 @@ const endpoints = [
     </header>
 
     <main>
-      <section class="og-hero" aria-label="BeeCrawl web data overview">
-        <img src="/og.png" width="1200" height="630" alt="BeeCrawl API request and web data overview" />
+      <section class="hero">
+        <pre class="signal-field" aria-hidden="true">scrape  crawl  map  search  extract
+00110011 01001010 10111000 00101101
+markdown  html  links  metadata  json
+11001010 01011100 00110001 10101001
+response  ready  response  ready</pre>
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <p class="kicker">The open-source web data API</p>
+            <h1>Make the web <em>usable.</em></h1>
+            <p class="lede">
+              Crawl, scrape, map, search, and extract reliable web data with one composable API.
+            </p>
+            <div class="actions">
+              <a class="button button-dark" href="https://github.com/jacoobwang/beecrawl">Start with BeeCrawl <span aria-hidden="true">-&gt;</span></a>
+              <a class="text-link" href="#request">See a request <span aria-hidden="true">-&gt;</span></a>
+            </div>
+          </div>
+
+          <div class="hero-visuals">
+            <figure class="hero-art">
+              <img src="/og.png" width="1200" height="630" alt="BeeCrawl API data preview" />
+              <figcaption><span class="live-dot" aria-hidden="true"></span> Live API preview</figcaption>
+            </figure>
+            <div class="hero-stats" aria-label="BeeCrawl capabilities">
+              <div><span>01</span><strong>Scrape</strong><p>Single-page extraction.</p></div>
+              <div><span>02</span><strong>Crawl</strong><p>Site-level collection.</p></div>
+              <div><span>03</span><strong>Extract</strong><p>Structured output.</p></div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="statement shell" aria-labelledby="statement-heading">
@@ -81,10 +110,10 @@ const endpoints = [
           <div class="terminal" aria-label="Example BeeCrawl API request">
             <div class="terminal-bar">
               <span class="live-dot" aria-hidden="true"></span>
-              <span>POST /v1/scrape</span>
+              <span>POST /scrape</span>
               <span class="terminal-status">200 OK</span>
             </div>
-            <pre><code>{`curl -X POST https://api.beecrawl.dev/v1/scrape \
+            <pre><code>{`curl -X POST https://api.beecrawl.dev/scrape \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
