@@ -12,6 +12,18 @@
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Mintlify also loads this stylesheet. Keep its light mode readable. */
+html:not(.dark) {
+  --bg: #f4f7f1;
+  --panel: #ffffff;
+  --panel-strong: #edf2e9;
+  --text: #1c1d1a;
+  --muted: #555754;
+  --line: #c9cec6;
+  --lime: #41610d;
+  --amber: #8a5700;
+}
+
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--bg); }
