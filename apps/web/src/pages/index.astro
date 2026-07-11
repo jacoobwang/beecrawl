@@ -2,6 +2,8 @@
 import { codeToHtml } from "shiki";
 import "../styles/global.css";
 
+const docsUrl = import.meta.env.PUBLIC_DOCS_URL || "/docs";
+
 const endpoints = [
   {
     route: "/scrape",
@@ -162,7 +164,7 @@ const highlightedResult = await codeToHtml(resultExample, {
       <nav class="nav shell" aria-label="Primary navigation">
         <a class="brand" href="/"><span class="bee" aria-hidden="true"><span class="bee-wing bee-wing-left"></span><span class="bee-wing bee-wing-right"></span><span class="bee-body">🐝</span></span><span class="brand-copy">BeeCrawl<span class="brand-mark">.</span></span></a>
         <div class="nav-links">
-          <a href="/docs">API docs</a>
+          <a href={docsUrl}>API docs</a>
           <a href="#use-cases">Use case</a>
           <a href="https://github.com/jacoobwang/beecrawl">GitHub</a>
         </div>
@@ -185,7 +187,7 @@ response  ready  response  ready</pre>
               An open-source Firecrawl alternative for scraping, crawling, and structured web data.
             </p>
             <div class="actions">
-              <a class="button button-dark" href="/docs">Read the API docs <span aria-hidden="true">-&gt;</span></a>
+              <a class="button button-dark" href={docsUrl}>Read the API docs <span aria-hidden="true">-&gt;</span></a>
               <a class="text-link" href="#request">See a request <span aria-hidden="true">-&gt;</span></a>
             </div>
           </div>
@@ -286,13 +288,6 @@ POST /v2/search</code></pre></div></div></section>
         </div>
       </section>
 
-      <section class="docs-hero homepage-build" aria-labelledby="homepage-build-heading">
-        <div class="shell docs-hero-inner">
-          <h1 id="homepage-build-heading">Build with<br /><em>BeeCrawl</em></h1>
-          <p class="lede">A small, self-hostable API for extracting useful data from the web. All endpoints return JSON and accept a JSON request body.</p>
-        </div>
-      </section>
-
       <script>
         const workbench = document.querySelector("[data-code-workbench]");
 
@@ -327,7 +322,7 @@ POST /v2/search</code></pre></div></div></section>
       <div class="shell footer-inner">
         <a class="brand" href="/"><span class="bee" aria-hidden="true"><span class="bee-wing bee-wing-left"></span><span class="bee-wing bee-wing-right"></span><span class="bee-body">🐝</span></span><span class="brand-copy">BeeCrawl<span class="brand-mark">.</span></span></a>
         <p>Open-source web data infrastructure.</p>
-        <a href="/docs">API docs</a>
+        <a href={docsUrl}>API docs</a>
         <a href="https://github.com/jacoobwang/beecrawl">GitHub</a>
       </div>
     </footer>

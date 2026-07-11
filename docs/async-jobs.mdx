@@ -1,0 +1,35 @@
+---
+title: Asynchronous jobs
+description: Submit and poll crawls and batch scrapes.
+---
+
+`POST /crawl` and `POST /batch/scrape` return an ID immediately. Poll the
+matching status endpoint with `offset` and `limit` query parameters.
+
+## Crawl
+
+```bash
+curl http://127.0.0.1:8000/crawl \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","limit":100,"maxDepth":2,"maxRetries":2}'
+```
+
+```bash
+curl 'http://127.0.0.1:8000/crawl/CRAWL_ID?offset=0&limit=20'
+```
+
+The status response includes `status`, `total`, `completed`, `failed`, page
+data, errors, and pagination metadata. Use `DELETE /crawl/{id}` to request
+cancellation.
+
+## Batch scrape
+
+Batch scrape processes the submitted URLs independently and never follows links:
+
+```bash
+curl http://127.0.0.1:8000/batch/scrape \
+  -H 'Content-Type: application/json' \
+  -d '{"urls":["https://example.com","https://example.org"]}'
+```
+
+Use `GET /batch/scrape/{id}` to poll and `DELETE /batch/scrape/{id}` to cancel.

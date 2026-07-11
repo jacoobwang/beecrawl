@@ -1,0 +1,64 @@
+---
+title: Quickstart
+description: Run BeeCrawl locally and make your first API request.
+---
+
+## Run the API
+
+From the repository root:
+
+```bash
+make api
+```
+
+The API listens on `http://127.0.0.1:8000` by default.
+
+For browser-first rendering, start Bee Engine in another terminal:
+
+```bash
+make install
+make playwright-install
+make bee-engine
+```
+
+## Scrape a page
+
+```bash
+curl http://127.0.0.1:8000/scrape \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com",
+    "formats": ["markdown", "links"],
+    "use_browser": "auto"
+  }'
+```
+
+The response contains the final URL, Markdown, selected metadata, and any
+optional formats requested in the body.
+
+## Start a crawl
+
+Distributed crawls require Postgres and a worker:
+
+```bash
+make db-up
+export BEECRAWL_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/beecrawl
+make migrate-up
+make api
+```
+
+In another terminal:
+
+```bash
+make worker
+```
+
+Then enqueue and poll a crawl:
+
+```bash
+curl http://127.0.0.1:8000/crawl \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","limit":100,"maxDepth":2}'
+
+curl 'http://127.0.0.1:8000/crawl/CRAWL_ID?offset=0&limit=20'
+```

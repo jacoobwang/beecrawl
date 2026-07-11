@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: BeeCrawl API
+  version: 0.1.0
+  description: Self-hostable web scraping, crawling, search, and extraction API.
+servers:
+  - url: https://api.beecrawl.dev
+    description: BeeCrawl hosted deployment
+  - url: http://127.0.0.1:8000
+    description: Local development
+tags:
+  - name: Scraping
+  - name: Discovery
+  - name: Async jobs
+  - name: Search
+  - name: Extraction
+paths:
+  /health:
+    get:
+      tags: [Scraping]
+      summary: Check API health
+      security: []
+      responses:
+        '200':
+          description: The API is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, example: true }
+  /scrape:
+    post:
+      tags: [Scraping]
+      summary: Scrape a page
+      operationId: scrapePage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScrapeRequest' }
+            example:
+              url: https://example.com
+              formats: [markdown, links]
+              use_browser: auto
+      responses:
+        '200':
+          description: Scraped page.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScrapeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /map:
+    post:
+      tags: [Discovery]
+      summary: Map a site
+      operationId: mapSite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MapRequest' }
+      responses:
+        '200':
+          description: Discovered URLs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MapResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /search:
+    post:
+      tags: [Search]
+      summary: Search the web
+      operationId: searchWeb
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: Search results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /extract:
+    post:
+      tags: [Extraction]
+      summary: Extract structured data
+      operationId: extractData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExtractRequest' }
+      responses:
+        '200':
+          description: Extracted data.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExtractResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /crawl:
+    post:
+      tags: [Async jobs]
+      summary: Start an asynchronous crawl
+      operationId: createCrawl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CrawlRequest' }
+      responses:
+        '200':
+          description: Crawl job created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CrawlEnqueueResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /crawl/{id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Async jobs]
+      summary: Get crawl status and results
+      operationId: getCrawl
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Crawl status and a page of results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CrawlStatusResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Async jobs]
+      summary: Cancel a crawl
+      operationId: cancelCrawl
+      responses:
+        '200':
+          description: Updated crawl status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CrawlStatusResponse' }
+  /batch/scrape:
+    post:
+      tags: [Async jobs]
+      summary: Start a batch scrape
+      operationId: createBatchScrape
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BatchScrapeRequest' }
+      responses:
+        '200':
+          description: Batch scrape job created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BatchScrapeEnqueueResponse' }
+  /batch/scrape/{id}:
+    parameters:
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [Async jobs]
+      summary: Get batch scrape status and results
+      operationId: getBatchScrape
+      parameters:
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Batch status and a page of results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CrawlStatusResponse' }
+    delete:
+      tags: [Async jobs]
+      summary: Cancel a batch scrape
+      operationId: cancelBatchScrape
+      responses:
+        '200':
+          description: Updated batch status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CrawlStatusResponse' }
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Web-Extract-Api-Key
+      description: API key. X-Api-Key and Bearer authentication are also accepted.
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, default: 20 }
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    ScrapeRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        formats:
+          type: array
+          items: { type: string, enum: [markdown, html, rawHtml, links, screenshot] }
+          default: [markdown]
+        location: { $ref: '#/components/schemas/Location' }
+        timeout_seconds: { type: integer, minimum: 1, default: 30 }
+        wait_for_ms: { type: integer, minimum: 0, default: 0 }
+        use_browser: { type: string, enum: [never, auto, always], default: auto }
+    Location:
+      type: object
+      properties:
+        country: { type: string }
+        languages: { type: array, items: { type: string } }
+    ScrapeResponse:
+      type: object
+      required: [request_id, url, final_url, markdown, metadata]
+      properties:
+        request_id: { type: string }
+        url: { type: string, format: uri }
+        final_url: { type: string, format: uri }
+        markdown: { type: string }
+        html: { type: string }
+        rawHtml: { type: string }
+        links: { type: array, items: { type: string, format: uri } }
+        screenshot: { type: string, description: PNG data URL when requested. }
+        metadata: { $ref: '#/components/schemas/ScrapeMetadata' }
+    ScrapeMetadata:
+      type: object
+      properties:
+        title: { type: string, nullable: true }
+        language: { type: string, nullable: true }
+        status_code: { type: integer, nullable: true }
+        provider: { type: string }
+        rendered: { type: boolean }
+        elapsed_ms: { type: integer, nullable: true }
+    MapRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        search: { type: string }
+        limit: { type: integer, minimum: 1, default: 100 }
+        includeSubdomains: { type: boolean, default: false }
+        sitemap: { type: string, enum: [include, only, skip], default: include }
+        ignore_sitemap: { type: boolean, default: false }
+        ignoreQueryParameters: { type: boolean, default: true }
+    MapResponse:
+      type: object
+      properties:
+        request_id: { type: string }
+        url: { type: string, format: uri }
+        links: { type: array, items: { type: string, format: uri } }
+        metadata:
+          type: object
+          properties:
+            provider: { type: string }
+            count: { type: integer }
+            elapsed_ms: { type: integer, nullable: true }
+    SearchRequest:
+      type: object
+      required: [query]
+      properties:
+        query: { type: string }
+        limit: { type: integer, minimum: 1, default: 5 }
+        lang: { type: string, default: en }
+        country: { type: string, default: us }
+        scrapeOptions: { $ref: '#/components/schemas/SearchScrapeOptions' }
+    SearchScrapeOptions:
+      type: object
+      properties:
+        formats: { type: array, items: { type: string } }
+        timeout_seconds: { type: integer, default: 30 }
+        wait_for_ms: { type: integer, default: 0 }
+        use_browser: { type: string, enum: [never, auto, always], default: auto }
+    SearchResponse:
+      type: object
+      properties:
+        requestId: { type: string }
+        query: { type: string }
+        results: { type: array, items: { $ref: '#/components/schemas/SearchResult' } }
+        metadata: { $ref: '#/components/schemas/SearchMetadata' }
+    SearchResult:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        title: { type: string, nullable: true }
+        description: { type: string, nullable: true }
+        markdown: { type: string, nullable: true }
+        metadata: { type: object, additionalProperties: true }
+        scrapeError: { type: string, nullable: true }
+    SearchMetadata:
+      type: object
+      properties:
+        provider: { type: string }
+        count: { type: integer }
+        scrapedCount: { type: integer }
+        elapsedMs: { type: integer, nullable: true }
+    ExtractRequest:
+      type: object
+      required: [url, schema]
+      properties:
+        url: { type: string, format: uri }
+        schema: { type: object, additionalProperties: { type: string } }
+        timeout_seconds: { type: integer, default: 30 }
+        wait_for_ms: { type: integer, default: 0 }
+        use_browser: { type: string, enum: [never, auto, always], default: auto }
+        provider: { $ref: '#/components/schemas/LlmProvider' }
+        llm: { $ref: '#/components/schemas/LlmProvider' }
+    LlmProvider:
+      type: object
+      properties:
+        provider: { type: string, default: openai-compatible }
+        api_key: { type: string }
+        base_url: { type: string, format: uri }
+        model: { type: string }
+    ExtractResponse:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        data: { type: object, additionalProperties: { type: string, nullable: true } }
+        scrape: { type: object, additionalProperties: true }
+        metadata:
+          type: object
+          properties:
+            provider: { type: string }
+            model: { type: string, nullable: true }
+    CrawlRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+        limit: { type: integer, default: 100 }
+        maxDepth: { type: integer, default: 2 }
+        includeSubdomains: { type: boolean, default: false }
+        ignoreQueryParameters: { type: boolean, default: true }
+        timeout_seconds: { type: integer, default: 30 }
+        waitFor: { type: integer, default: 0 }
+        useBrowser: { type: string, enum: [never, auto, always], default: auto }
+        maxRetries: { type: integer, default: 2 }
+    BatchScrapeRequest:
+      type: object
+      required: [urls]
+      properties:
+        urls: { type: array, minItems: 1, items: { type: string, format: uri } }
+        timeout_seconds: { type: integer, default: 30 }
+        wait_for_ms: { type: integer, default: 0 }
+        use_browser: { type: string, enum: [never, auto, always], default: auto }
+        maxRetries: { type: integer, default: 2 }
+    CrawlEnqueueResponse:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        status: { type: string }
+    BatchScrapeEnqueueResponse:
+      type: object
+      properties:
+        id: { type: string }
+        status: { type: string }
+        total: { type: integer }
+    CrawlStatusResponse:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        status: { type: string }
+        total: { type: integer }
+        completed: { type: integer }
+        failed: { type: integer }
+        data: { type: array, items: { $ref: '#/components/schemas/ScrapeResponse' } }
+        errors: { type: array, items: { $ref: '#/components/schemas/CrawlError' } }
+        pagination: { $ref: '#/components/schemas/Pagination' }
+    CrawlError:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        code: { type: string }
+        message: { type: string }
+    Pagination:
+      type: object
+      properties:
+        offset: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+        next: { type: integer, nullable: true }
+    Error:
+      type: object
+      additionalProperties: true
+security:
+  - apiKey: []

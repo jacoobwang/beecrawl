@@ -1,0 +1,32 @@
+---
+title: Python SDK
+description: Use BeeCrawl from Python.
+---
+
+## Install
+
+```bash
+uv add beecrawl-py
+```
+
+## Usage
+
+```python
+from beecrawl_sdk import BeeCrawlClient
+
+client = BeeCrawlClient(
+    api_key="your-key",
+    base_url="https://api.beecrawl.dev",
+)
+
+page = client.scrape(
+    "https://example.com",
+    formats=["markdown", "links"],
+    use_browser="auto",
+)
+
+job = client.crawl("https://example.com", limit=100, maxDepth=2)
+result = client.poll_crawl(job["id"], interval=2)
+```
+
+An async client with the same API is available as `AsyncBeeCrawlClient`.

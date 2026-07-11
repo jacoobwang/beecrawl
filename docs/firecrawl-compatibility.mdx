@@ -1,0 +1,23 @@
+---
+title: Firecrawl compatibility
+description: Keep existing Firecrawl v2 SDK integrations pointed at BeeCrawl.
+---
+
+BeeCrawl exposes a Firecrawl v2-compatible surface for scrape, map, crawl,
+extract, and search:
+
+```text
+POST   /v2/scrape
+POST   /v2/map
+POST   /v2/crawl
+GET    /v2/crawl/{id}
+DELETE /v2/crawl/{id}
+POST   /v2/extract
+POST   /v2/search
+```
+
+Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
+routes accept Firecrawl camelCase fields and return a `success` envelope.
+
+The compatibility layer does not currently implement batch scrape, usage
+accounts, or Firecrawl's news and image search providers.

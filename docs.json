@@ -1,0 +1,49 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "BeeCrawl",
+  "description": "Self-hostable web scraping, crawling, search, and extraction API.",
+  "theme": "mint",
+  "colors": {
+    "primary": "#b8e986",
+    "light": "#f4f7f1",
+    "dark": "#0b100d"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": [
+          "docs/introduction",
+          "docs/quickstart",
+          "docs/authentication",
+          "docs/self-hosting"
+        ]
+      },
+      {
+        "group": "Core concepts",
+        "pages": [
+          "docs/browser-rendering",
+          "docs/async-jobs",
+          "docs/firecrawl-compatibility"
+        ]
+      },
+      {
+        "group": "API reference",
+        "openapi": "docs/openapi.yaml"
+      },
+      {
+        "group": "SDKs",
+        "pages": [
+          "docs/sdk-node",
+          "docs/sdk-python",
+          "docs/sdk-rust"
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/jacoobwang/beecrawl"
+    }
+  }
+}

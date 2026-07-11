@@ -1,0 +1,30 @@
+---
+title: Authentication
+description: Configure API key authentication for BeeCrawl.
+---
+
+Authentication is optional when the API is not configured with an API key.
+When a key is configured, send it using one of these methods:
+
+- `X-Web-Extract-Api-Key: YOUR_API_KEY`
+- `X-Api-Key: YOUR_API_KEY`
+- `Authorization: Bearer YOUR_API_KEY`
+
+Configure the API service with either environment variable:
+
+```bash
+BEECRAWL_WEB_EXTRACT_API_KEY=replace-me
+# or
+WEB_EXTRACT_API_KEY=replace-me
+```
+
+Example:
+
+```bash
+curl https://api.beecrawl.dev/scrape \
+  -H 'X-Web-Extract-Api-Key: YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+```
+
+The `/health` endpoint is public and returns `{ "ok": true }`.

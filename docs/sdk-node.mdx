@@ -1,0 +1,34 @@
+---
+title: Node.js SDK
+description: Use BeeCrawl from Node.js and TypeScript.
+---
+
+## Install
+
+```bash
+npm install beecrawl-sdk
+```
+
+## Scrape and crawl
+
+```ts
+import { BeeCrawlClient } from "beecrawl-sdk";
+
+const client = new BeeCrawlClient({
+  apiKey: process.env.BEECRAWL_API_KEY,
+  baseUrl: "https://api.beecrawl.dev",
+});
+
+const page = await client.scrape("https://example.com", {
+  formats: ["markdown", "links"],
+  use_browser: "auto",
+});
+
+const job = await client.crawl("https://example.com", {
+  limit: 100,
+  maxDepth: 2,
+});
+const result = await client.pollCrawl(job.id, { intervalMs: 2000 });
+```
+
+For local development, use `http://127.0.0.1:8000` as `baseUrl`.

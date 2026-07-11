@@ -1,0 +1,29 @@
+---
+title: Browser rendering
+description: Understand the automatic Playwright rendering path.
+---
+
+The `use_browser` option controls how BeeCrawl fetches a page:
+
+| Value | Behavior |
+| --- | --- |
+| `never` | Use plain HTTP only. |
+| `always` | Use Bee Engine and Playwright only. |
+| `auto` | Try Playwright first, then fall back to HTTP when rendering fails or produces no Markdown. |
+
+```json
+{
+  "url": "https://example.com/app",
+  "formats": ["markdown", "screenshot"],
+  "use_browser": "auto",
+  "wait_for_ms": 1000,
+  "timeout_seconds": 30
+}
+```
+
+Bee Engine keeps one Chromium process per service and creates a fresh browser
+context for each request. `BEE_ENGINE_MAX_PAGES` controls the maximum number of
+rendered pages handled concurrently; the default is `4`.
+
+Screenshots require browser rendering. The service blocks common media and
+analytics resources by default to keep page loads predictable.

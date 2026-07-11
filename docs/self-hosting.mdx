@@ -1,0 +1,34 @@
+---
+title: Self-hosting
+description: Deploy the BeeCrawl API, worker, browser engine, and Postgres.
+---
+
+BeeCrawl is designed to run as separate services:
+
+1. The Rust API accepts requests and performs direct HTTP scraping.
+2. The Python Bee Engine renders browser-required pages with Playwright.
+3. The worker consumes crawl and batch-scrape jobs from Postgres.
+4. Postgres stores job history and the scrape cache.
+
+## Required configuration
+
+For synchronous scraping, start the API. For asynchronous crawls and batch
+scrapes, configure `BEECRAWL_DATABASE_URL`, run migrations, and start a worker.
+
+For browser rendering, set `BEE_ENGINE_URL` on the API and run Bee Engine. Its
+default address is `http://127.0.0.1:8020`.
+
+For search, set `BEECRAWL_SEARXNG_ENDPOINT` to use SearXNG. Without it,
+BeeCrawl falls back to DuckDuckGo HTML search.
+
+For model-backed extraction, configure an OpenAI-compatible provider:
+
+```bash
+BEECRAWL_LLM_PROVIDER=openai-compatible
+BEECRAWL_LLM_API_KEY=replace-me
+BEECRAWL_LLM_BASE_URL=https://api.openai.com/v1
+BEECRAWL_LLM_MODEL=gpt-4o-mini
+```
+
+The Helm chart under `infra/charts/beecrawl` contains the Kubernetes deployment
+templates for the API, worker, migrations, Bee Engine, and ingress.

@@ -1,0 +1,27 @@
+---
+title: Rust SDK
+description: Use BeeCrawl from Rust with an async HTTP client.
+---
+
+## Install
+
+```toml
+[dependencies]
+beecrawl-sdk = "0.1"
+```
+
+## Usage
+
+```rust
+use beecrawl_sdk::BeeCrawlClient;
+use serde_json::json;
+
+let client = BeeCrawlClient::builder("http://127.0.0.1:8000")
+    .api_key("your-key")
+    .build()?;
+
+let page = client
+    .scrape("https://example.com", json!({"formats": ["markdown"]}))
+    .await?;
+println!("{}", page["markdown"]);
+```

@@ -1,0 +1,36 @@
+---
+title: BeeCrawl
+description: A small, self-hostable API for extracting useful data from the web.
+---
+
+BeeCrawl is an open-source web data API for scraping pages, discovering URLs,
+running asynchronous crawls, searching the web, and extracting structured data.
+
+The API is implemented in Rust. Browser rendering is provided by the Python Bee
+Engine service, so you can run the complete stack yourself and choose your own
+Postgres, search, proxy, and LLM infrastructure.
+
+## What you can do
+
+- Scrape pages into Markdown, HTML, links, or screenshots.
+- Map a site from its sitemap and page links.
+- Crawl a site asynchronously with retry and pagination support.
+- Batch scrape independent URLs without following links.
+- Search the web through SearXNG or the DuckDuckGo fallback.
+- Extract predictable fields with deterministic parsing or an LLM provider.
+
+<Note>
+  The hosted URL shown in examples is a deployment convention. When
+  self-hosting, replace it with your own API base URL.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/docs/quickstart">
+    Make your first scrape request.
+  </Card>
+  <Card title="API reference" icon="brackets-curly" href="/api-reference">
+    Explore the interactive endpoint reference.
+  </Card>
+</CardGroup>
