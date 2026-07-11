@@ -467,6 +467,9 @@ async fn firecrawl_v2_search(
 fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::Value {
     if let Some(markdown) = result.markdown {
         json!({
+            "url": result.url,
+            "title": result.title,
+            "description": result.description,
             "markdown": markdown,
             "metadata": {
                 "title": result.title,
@@ -823,7 +826,9 @@ mod tests {
             scrape_error: None,
         });
         assert_eq!(result["markdown"], "# Example");
+        assert_eq!(result["title"], "Example");
+        assert_eq!(result["description"], "Description");
+        assert_eq!(result["url"], "https://example.com");
         assert_eq!(result["metadata"]["sourceURL"], "https://example.com");
-        assert!(result.get("url").is_none());
     }
 }
