@@ -13,7 +13,7 @@
 }
 
 /* Mintlify also loads this stylesheet. Keep its light mode readable. */
-html:not(.dark) {
+html:not(.dark) body:has([data-docs-theme="mint"]) {
   --bg: #f4f7f1;
   --panel: #ffffff;
   --panel-strong: #edf2e9;
