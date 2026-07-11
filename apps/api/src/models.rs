@@ -82,6 +82,33 @@ pub struct FirecrawlV2ExtractRequest {
     pub show_sources: bool,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2SearchRequest {
+    pub query: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub sources: Vec<FirecrawlV2Source>,
+    #[serde(rename = "scrapeOptions", default)]
+    pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum FirecrawlV2Source {
+    Name(String),
+    Config { r#type: String },
+}
+
+impl FirecrawlV2Source {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Name(name) => name,
+            Self::Config { r#type } => r#type,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct WebExtractScrapeResponse {
     pub request_id: String,

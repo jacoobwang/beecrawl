@@ -168,13 +168,16 @@ POST   /v2/crawl
 GET    /v2/crawl/{id}
 DELETE /v2/crawl/{id}
 POST   /v2/extract
+POST   /v2/search
 ```
 
 Set the Firecrawl SDK `api_url` to the BeeCrawl base URL. These routes accept
 Firecrawl camelCase request fields and return its `success` response envelope.
-The v2 extract adapter supports multiple URLs and JSON Schema objects. Search,
-batch scrape, crawl error listing, and usage-account endpoints are not yet part
-of the compatibility surface.
+The v2 extract adapter supports multiple URLs and JSON Schema objects. Search
+supports Web results with optional scraping; requested news and image groups
+are returned empty until providers for those source types are added. Batch
+scrape, crawl error listing, and usage-account endpoints are not yet part of
+the compatibility surface.
 
 ## Quick Start
 

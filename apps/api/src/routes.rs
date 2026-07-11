@@ -12,8 +12,9 @@ use tower_http::trace::TraceLayer;
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ScrapeRequest, Link,
-    ScrapeResponse, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ScrapeRequest,
+    FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest, SearchScrapeOptions,
+    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -56,6 +57,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         )
         .route("/v2/map", post(firecrawl_v2_map))
         .route("/v2/extract", post(firecrawl_v2_extract))
+        .route("/v2/search", post(firecrawl_v2_search))
         .layer(TraceLayer::new_for_http())
         .with_state(Arc::new(state))
 }
@@ -391,6 +393,97 @@ async fn firecrawl_v2_extract(
     .into_response())
 }
 
+async fn firecrawl_v2_search(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<FirecrawlV2SearchRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    if request.query.trim().is_empty() {
+        return Err(ApiError::InvalidRequest(
+            "Firecrawl v2 search query cannot be empty".to_string(),
+        ));
+    }
+    if !(1..=100).contains(&request.limit) {
+        return Err(ApiError::InvalidRequest(
+            "Firecrawl v2 search limit must be between 1 and 100".to_string(),
+        ));
+    }
+
+    let requested_sources = request
+        .sources
+        .iter()
+        .map(|source| source.name())
+        .collect::<Vec<_>>();
+    let wants_web = requested_sources.is_empty() || requested_sources.contains(&"web");
+    let wants_news = requested_sources.contains(&"news");
+    let wants_images = requested_sources.contains(&"images");
+
+    if !wants_web {
+        let mut data = serde_json::Map::new();
+        if wants_news {
+            data.insert("news".to_string(), json!([]));
+        }
+        if wants_images {
+            data.insert("images".to_string(), json!([]));
+        }
+        return Ok(Json(json!({ "success": true, "data": data })).into_response());
+    }
+
+    let response = search::search(
+        &state.client,
+        SearchRequest {
+            query: request.query,
+            limit: request.limit,
+            lang: "en".to_string(),
+            country: "us".to_string(),
+            scrape_options: request.scrape_options.map(|options| SearchScrapeOptions {
+                formats: options.formats,
+                timeout_seconds: options.timeout.div_ceil(1_000).max(1),
+                wait_for_ms: options.wait_for_ms,
+                use_browser: "auto".to_string(),
+            }),
+        },
+    )
+    .await
+    .map_err(|error| ApiError::Internal(error.to_string()))?;
+
+    let web = response
+        .results
+        .into_iter()
+        .map(firecrawl_search_result)
+        .collect::<Vec<_>>();
+    let mut data = serde_json::Map::new();
+    data.insert("web".to_string(), json!(web));
+    if wants_news {
+        data.insert("news".to_string(), json!([]));
+    }
+    if wants_images {
+        data.insert("images".to_string(), json!([]));
+    }
+    Ok(Json(json!({ "success": true, "data": data })).into_response())
+}
+
+fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::Value {
+    if let Some(markdown) = result.markdown {
+        json!({
+            "markdown": markdown,
+            "metadata": {
+                "title": result.title,
+                "description": result.description,
+                "sourceURL": result.url,
+                "url": result.metadata.get("final_url"),
+            }
+        })
+    } else {
+        json!({
+            "url": result.url,
+            "title": result.title,
+            "description": result.description,
+        })
+    }
+}
+
 fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
     json!({
         "markdown": response.markdown,
@@ -692,5 +785,33 @@ mod tests {
     fn queued_crawls_are_reported_as_firecrawl_scraping() {
         assert_eq!(firecrawl_status("queued"), "scraping");
         assert_eq!(firecrawl_status("completed"), "completed");
+    }
+
+    #[test]
+    fn firecrawl_v2_search_accepts_source_names_and_objects() {
+        let request: FirecrawlV2SearchRequest = serde_json::from_value(json!({
+            "query": "thermal insulation",
+            "sources": ["web", { "type": "news" }],
+            "scrapeOptions": { "formats": ["markdown"], "timeout": 45000 }
+        }))
+        .unwrap();
+        assert_eq!(request.sources[0].name(), "web");
+        assert_eq!(request.sources[1].name(), "news");
+        assert_eq!(request.scrape_options.unwrap().timeout, 45_000);
+    }
+
+    #[test]
+    fn firecrawl_v2_scraped_search_result_is_a_document() {
+        let result = firecrawl_search_result(crate::models::SearchResult {
+            url: "https://example.com".to_string(),
+            title: Some("Example".to_string()),
+            description: Some("Description".to_string()),
+            markdown: Some("# Example".to_string()),
+            metadata: HashMap::from([("final_url".to_string(), json!("https://www.example.com/"))]),
+            scrape_error: None,
+        });
+        assert_eq!(result["markdown"], "# Example");
+        assert_eq!(result["metadata"]["sourceURL"], "https://example.com");
+        assert!(result.get("url").is_none());
     }
 }
