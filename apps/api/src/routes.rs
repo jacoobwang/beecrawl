@@ -792,12 +792,24 @@ mod tests {
         let request: FirecrawlV2SearchRequest = serde_json::from_value(json!({
             "query": "thermal insulation",
             "sources": ["web", { "type": "news" }],
-            "scrapeOptions": { "formats": ["markdown"], "timeout": 45000 }
+            "scrapeOptions": { "formats": [{ "type": "markdown" }], "timeout": 45000 }
         }))
         .unwrap();
         assert_eq!(request.sources[0].name(), "web");
         assert_eq!(request.sources[1].name(), "news");
-        assert_eq!(request.scrape_options.unwrap().timeout, 45_000);
+        let scrape_options = request.scrape_options.unwrap();
+        assert_eq!(scrape_options.formats, ["markdown"]);
+        assert_eq!(scrape_options.timeout, 45_000);
+    }
+
+    #[test]
+    fn firecrawl_v2_formats_accept_strings_and_objects() {
+        let request: FirecrawlV2ScrapeRequest = serde_json::from_value(json!({
+            "url": "https://example.com",
+            "formats": ["html", { "type": "markdown" }, { "type": "screenshot", "fullPage": true }]
+        }))
+        .unwrap();
+        assert_eq!(request.formats, ["html", "markdown", "screenshot"]);
     }
 
     #[test]

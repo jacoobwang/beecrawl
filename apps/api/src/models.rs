@@ -1,3 +1,4 @@
+use serde::de::Error as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -26,7 +27,10 @@ pub struct WebExtractLocation {
 #[derive(Debug, Deserialize)]
 pub struct FirecrawlV2ScrapeRequest {
     pub url: String,
-    #[serde(default = "default_formats")]
+    #[serde(
+        default = "default_formats",
+        deserialize_with = "deserialize_firecrawl_formats"
+    )]
     pub formats: Vec<String>,
     pub location: Option<WebExtractLocation>,
     #[serde(default = "default_timeout_milliseconds")]
@@ -60,7 +64,7 @@ pub struct FirecrawlV2CrawlRequest {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct FirecrawlV2ScrapeOptions {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_firecrawl_formats")]
     pub formats: Vec<String>,
     #[serde(default = "default_timeout_milliseconds")]
     pub timeout: u64,
@@ -402,6 +406,27 @@ pub struct BeeEngineScrapeResponse {
 
 fn default_formats() -> Vec<String> {
     vec!["markdown".to_string()]
+}
+
+fn deserialize_firecrawl_formats<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let formats = Vec::<Value>::deserialize(deserializer)?;
+    formats
+        .into_iter()
+        .map(|format| match format {
+            Value::String(name) => Ok(name),
+            Value::Object(options) => options
+                .get("type")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| D::Error::custom("format object must contain a string type")),
+            _ => Err(D::Error::custom(
+                "format must be a string or an object containing type",
+            )),
+        })
+        .collect()
 }
 
 fn default_timeout_milliseconds() -> u64 {
