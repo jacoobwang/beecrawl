@@ -9,6 +9,17 @@ export function getStaticPaths() {
     title: "Search the web.\nBring back useful pages.",
     description: "Find relevant pages through a single API and optionally return the page content your agent needs next.",
     endpoint: "POST /search",
+    featureIntro: "Search the live web and return ranked pages that are ready for your next step.",
+    features: [
+      { label: "01 / Ranked retrieval", title: "Results with context.", copy: "Get titles, URLs, descriptions, and provider metadata in a predictable response." },
+      { label: "02 / Search + scrape", title: "Skip the second pipeline.", copy: "Add scrapeOptions when you want matching pages returned as clean markdown in the same request." },
+      { label: "03 / Tunable requests", title: "Search on your terms.", copy: "Control result count, language, country, and the rendering settings used for follow-up content." },
+    ],
+    steps: ["Send a focused query.", "Rank and normalize matching pages.", "Return links or scrape-ready content."],
+    faqs: [
+      { question: "What does Search return?", answer: "Each result includes a URL, title, description, and optional markdown content when scrapeOptions are included." },
+      { question: "Can I search and scrape in one request?", answer: "Yes. Add scrapeOptions with one or more formats to fetch page content for each search result." },
+    ],
     points: ["Query the web through one stable endpoint.", "Control result count and source selection.", "Pass results directly into your agent or pipeline."],
     code: `curl -X POST https://api.beecrawl.dev/search \\
   -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
@@ -20,6 +31,17 @@ export function getStaticPaths() {
     title: "Turn any URL\ninto clean data.",
     description: "Extract markdown, HTML, links, and metadata from a page with one predictable request.",
     endpoint: "POST /scrape",
+    featureIntro: "Make any page useful to an agent, whether it is static, dynamic, or full of noisy markup.",
+    features: [
+      { label: "01 / Clean output", title: "Only the data you need.", copy: "Choose markdown, HTML, links, and metadata instead of building a parser for every site." },
+      { label: "02 / Browser rendering", title: "Handle modern pages.", copy: "Turn on browser rendering and wait for page content when a plain HTTP request is not enough." },
+      { label: "03 / Stable interface", title: "One request shape.", copy: "Use the same endpoint from cURL, Python, Node, or Rust as your sources change." },
+    ],
+    steps: ["Pass a URL and formats.", "Render and normalize the page.", "Use structured content in your workflow."],
+    faqs: [
+      { question: "Which formats are supported?", answer: "BeeCrawl supports markdown, HTML, links, and page metadata through the scrape request." },
+      { question: "When should I use browser rendering?", answer: "Use it for JavaScript-heavy pages or pages where the useful content appears after the initial document load." },
+    ],
     points: ["Return markdown, HTML, links, or metadata.", "Use browser rendering when a page needs JavaScript.", "Reuse cached results for faster repeated requests."],
     code: `curl -X POST https://api.beecrawl.dev/scrape \\
   -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
@@ -31,6 +53,17 @@ export function getStaticPaths() {
     title: "Traverse whole sites\nwith control.",
     description: "Start an asynchronous crawl, monitor its progress, and collect normalized results across a site.",
     endpoint: "POST /crawl",
+    featureIntro: "Turn a starting URL into a controlled, observable collection of pages.",
+    features: [
+      { label: "01 / Async by design", title: "Start now, collect later.", copy: "Enqueue a crawl and keep your application responsive while the worker processes each page." },
+      { label: "02 / Crawl controls", title: "Set the boundary.", copy: "Choose page limits, discovery depth, subdomain behavior, and query parameter handling." },
+      { label: "03 / Observable results", title: "Know what happened.", copy: "Poll status for progress, completed pages, failures, and the next slice of results." },
+    ],
+    steps: ["Enqueue a starting URL.", "Discover and process pages.", "Poll status and page through results."],
+    faqs: [
+      { question: "Is Crawl synchronous?", answer: "No. Crawl returns a job ID so you can monitor progress and retrieve results after processing begins." },
+      { question: "How do I control crawl size?", answer: "Use limit and maxDepth, plus the subdomain and query parameter options, to keep the crawl within a known boundary." },
+    ],
     points: ["Set page limits and discovery depth.", "Follow links without losing crawl state.", "Poll status and retrieve completed results."],
     code: `curl -X POST https://api.beecrawl.dev/crawl \\
   -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
@@ -82,17 +115,70 @@ const { content } = Astro.props;
         </div>
       </section>
 
-      <section class="product-details">
-        <div class="shell product-details-grid">
+      <section class="product-intro">
+        <div class="shell product-intro-grid">
+          <p class="kicker">Features // {content.label}</p>
+          <h2>{content.featureIntro}</h2>
+        </div>
+      </section>
+
+      <section class="product-features">
+        <div class="shell product-feature-grid">
+          {content.features.map((feature) => (
+            <article class="product-feature-card">
+              <p class="product-feature-label">{feature.label}</p>
+              <h3>{feature.title}</h3>
+              <p>{feature.copy}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section class="product-workflow">
+        <div class="shell product-workflow-grid">
           <div>
-            <p class="kicker">Built for useful output</p>
-            <h2>One endpoint.<br /><em>Clear results.</em></h2>
+            <p class="kicker">How it works //</p>
+            <h2>From request<br /><em>to ready data.</em></h2>
+            <div class="workflow-steps">
+              {content.steps.map((step, index) => (
+                <div class="workflow-step"><span>0{index + 1}</span><p>{step}</p></div>
+              ))}
+            </div>
           </div>
-          <div class="product-points">
-            {content.points.map((point, index) => (
-              <div class="product-point"><span>0{index + 1}</span><p>{point}</p></div>
+          <div class="product-result-card">
+            <div class="product-result-bar"><span class="live-dot" aria-hidden="true"></span><span>response.json</span><span>200 OK</span></div>
+            <pre><code>{`{
+  "requestId": "req_01H...",
+  "status": "ready",
+  "data": "useful web content",
+  "metadata": { "provider": "beecrawl" }
+}`}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-faq">
+        <div class="shell product-faq-grid">
+          <div>
+            <p class="kicker">FAQ //</p>
+            <h2>Everything you need<br /><em>to get moving.</em></h2>
+          </div>
+          <div class="faq-list">
+            {content.faqs.map((faq) => (
+              <details>
+                <summary>{faq.question}<span aria-hidden="true">+</span></summary>
+                <p>{faq.answer}</p>
+              </details>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section class="product-cta">
+        <div class="shell product-cta-inner">
+          <p class="kicker">Build with BeeCrawl //</p>
+          <h2>Make the web<br /><em>agent-ready.</em></h2>
+          <a class="button button-dark" href="https://docs.beecrawl.dev/" target="_blank" rel="noopener noreferrer">Read the API docs <span aria-hidden="true">-&gt;</span></a>
         </div>
       </section>
     </main>
