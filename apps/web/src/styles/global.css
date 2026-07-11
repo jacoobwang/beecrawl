@@ -143,7 +143,7 @@ h1 em { color: var(--lime); font-family: Georgia, serif; font-weight: 400; }.led
 .product-hero::after { position: absolute; inset: 26px; border: 1px solid rgba(201, 237, 72, .18); content: ""; pointer-events: none; }
 .product-hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, .9fr) minmax(420px, 1.1fr); align-items: center; gap: clamp(42px, 6vw, 92px); min-height: 610px; padding: 96px 0; }
 .product-hero-copy { max-width: 600px; }
-.product-hero h1 { max-width: 700px; white-space: pre-line; }
+.product-hero h1 { max-width: 700px; margin-bottom: 24px; font-size: clamp(3rem, 5.8vw, 5.5rem); line-height: .96; white-space: pre-line; }
 .product-lede { max-width: 540px; margin-bottom: 34px; color: var(--muted); font-size: 18px; line-height: 1.6; }
 .product-terminal { overflow: hidden; border: 1px solid #687164; background: var(--panel); box-shadow: 10px 10px 0 rgba(211, 146, 33, .72); }
 .product-terminal pre { min-height: 230px; margin: 0; padding: 28px; overflow-x: auto; color: var(--text); font: 13px/1.7 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; }
