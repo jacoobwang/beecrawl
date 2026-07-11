@@ -278,61 +278,6 @@ response  ready  response  ready</pre>
         }
       </script>
 
-      <section class="statement shell" aria-labelledby="statement-heading">
-        <p class="kicker">Built for real workflows</p>
-        <h2 id="statement-heading">The browser is messy. Your inputs should not be.</h2>
-        <p>
-          BeeCrawl turns websites into dependable building blocks for agents, data pipelines, research tools, and product experiences.
-        </p>
-      </section>
-
-      <section id="request" class="request-section">
-        <div class="shell request-layout">
-          <div class="request-heading">
-            <p class="kicker">A simple request</p>
-            <h2>Ask for data. Get work done.</h2>
-            <p>Use the same clear interface whether you need one page or a whole domain.</p>
-          </div>
-          <div class="terminal" aria-label="Example BeeCrawl API request">
-            <div class="terminal-bar">
-              <span class="live-dot" aria-hidden="true"></span>
-              <span>POST /scrape</span>
-              <span class="terminal-status">200 OK</span>
-            </div>
-            <pre><code>{`curl -X POST https://api.beecrawl.dev/scrape \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://example.com",
-    "formats": ["markdown", "links"]
-  }'`}</code></pre>
-            <div class="terminal-response">
-              <span>response</span>
-              <code>{`{
-  "success": true,
-  "data": { "markdown": "# Example..." }
-}`}</code>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="features" class="features shell" aria-labelledby="features-heading">
-        <div class="features-intro">
-          <p class="kicker">The primitives you need</p>
-          <h2 id="features-heading">Useful from the first request.</h2>
-        </div>
-        <div class="feature-list">
-          {endpoints.map((endpoint, index) => (
-            <article class="feature">
-              <span class="feature-index">0{index + 1}</span>
-              <code>{endpoint.route}</code>
-              <h3>{endpoint.title}</h3>
-              <p>{endpoint.copy}</p>
-              <a href="https://github.com/jacoobwang/beecrawl" aria-label={`Learn about ${endpoint.route}`}>Explore <span aria-hidden="true">-&gt;</span></a>
-            </article>
-          ))}
-        </div>
-      </section>
     </main>
 
     <footer class="site-footer">
