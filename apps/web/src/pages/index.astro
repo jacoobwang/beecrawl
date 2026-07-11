@@ -1,7 +1,23 @@
 ---
 import "../styles/global.css";
 
-const endpoints = ["/scrape", "/crawl", "/map", "/search", "/extract"];
+const endpoints = [
+  {
+    route: "/scrape",
+    title: "Turn any page into useful data.",
+    copy: "Get clean markdown, HTML, links, and metadata in one request.",
+  },
+  {
+    route: "/crawl",
+    title: "Traverse whole sites with control.",
+    copy: "Start a crawl, monitor its progress, and collect normalized results.",
+  },
+  {
+    route: "/extract",
+    title: "Ask for structure, receive structure.",
+    copy: "Define the fields you need and get consistent extraction output.",
+  },
+];
 ---
 
 <!doctype html>
@@ -11,61 +27,128 @@ const endpoints = ["/scrape", "/crawl", "/map", "/search", "/extract"];
     <meta name="viewport" content="width=device-width" />
     <meta
       name="description"
-      content="BeeCrawl is an open-source API for reliable web extraction, crawling, and search."
+      content="BeeCrawl is an open-source API for reliable web extraction, crawling, mapping, and search."
     />
-    <title>BeeCrawl | Web data, without the busywork</title>
+    <meta property="og:title" content="BeeCrawl | Web data, made useful." />
+    <meta
+      property="og:description"
+      content="An open-source API for reliable web extraction, crawling, mapping, and search."
+    />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/og.png" />
+    <title>BeeCrawl | Web data, made useful.</title>
   </head>
   <body>
-    <main>
-      <nav class="nav" aria-label="Primary navigation">
-        <a class="brand" href="/">BeeCrawl</a>
-        <a class="github-link" href="https://github.com/jacoobwang/beecrawl">GitHub</a>
-      </nav>
+    <div class="release-banner">
+      <a href="https://github.com/jacoobwang/beecrawl">
+        BeeCrawl is open source. Inspect the code on GitHub <span aria-hidden="true">-&gt;</span>
+      </a>
+    </div>
 
-      <section class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow">Open-source web data API</p>
-          <h1>Web data, without the busywork.</h1>
-          <p class="lede">
-            Extract pages, crawl sites, map links, and search the web through a
-            clean API built for dependable automation.
-          </p>
-          <div class="actions">
-            <a class="button primary" href="https://github.com/jacoobwang/beecrawl">View on GitHub</a>
-            <a class="button secondary" href="#api">Explore the API</a>
-          </div>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Primary navigation">
+        <a class="brand" href="/">BeeCrawl<span class="brand-mark">.</span></a>
+        <div class="nav-links">
+          <a href="#features">Capabilities</a>
+          <a href="#request">API example</a>
+          <a href="https://github.com/jacoobwang/beecrawl">GitHub</a>
         </div>
+        <a class="nav-cta" href="https://github.com/jacoobwang/beecrawl">Get started <span aria-hidden="true">-&gt;</span></a>
+      </nav>
+    </header>
 
-        <div class="request-panel" aria-label="Example API request and response">
-          <div class="panel-topline">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span>POST /v1/scrape</span>
-            <span class="response-code">200</span>
+    <main>
+      <section class="hero">
+        <pre class="signal-field" aria-hidden="true">scrape  crawl  map  search  extract
+00110011 01001010 10111000 00101101
+markdown  html  links  metadata  json
+11001010 01011100 00110001 10101001
+response  ready  response  ready</pre>
+        <div class="shell hero-grid">
+          <div class="hero-copy">
+            <p class="kicker">The open-source web data API</p>
+            <h1>Make the web <em>usable.</em></h1>
+            <p class="lede">
+              Crawl, scrape, map, search, and extract reliable web data with one composable API.
+            </p>
+            <div class="actions">
+              <a class="button button-dark" href="https://github.com/jacoobwang/beecrawl">Start with BeeCrawl <span aria-hidden="true">-&gt;</span></a>
+              <a class="text-link" href="#request">See a request <span aria-hidden="true">-&gt;</span></a>
+            </div>
           </div>
-          <pre><code>{`{
-  "url": "https://example.com",
-  "formats": ["markdown", "links"]
-}`}</code></pre>
-          <div class="response-divider">response</div>
-          <pre><code class="response">{`{
-  "success": true,
-  "data": {
-    "markdown": "# Example Domain...",
-    "links": ["https://www.iana.org/domains/example"]
-  }
-}`}</code></pre>
+
+          <div class="hero-stats" aria-label="BeeCrawl capabilities">
+            <div><span>01</span><strong>Scrape</strong><p>Single-page extraction.</p></div>
+            <div><span>02</span><strong>Crawl</strong><p>Site-level collection.</p></div>
+            <div><span>03</span><strong>Extract</strong><p>Structured output.</p></div>
+          </div>
         </div>
       </section>
 
-      <section id="api" class="api-section" aria-labelledby="api-heading">
-        <div>
-          <p class="eyebrow">One interface, useful primitives</p>
-          <h2 id="api-heading">Get the web into your workflow.</h2>
+      <section class="statement shell" aria-labelledby="statement-heading">
+        <p class="kicker">Built for real workflows</p>
+        <h2 id="statement-heading">The browser is messy. Your inputs should not be.</h2>
+        <p>
+          BeeCrawl turns websites into dependable building blocks for agents, data pipelines, research tools, and product experiences.
+        </p>
+      </section>
+
+      <section id="request" class="request-section">
+        <div class="shell request-layout">
+          <div class="request-heading">
+            <p class="kicker">A simple request</p>
+            <h2>Ask for data. Get work done.</h2>
+            <p>Use the same clear interface whether you need one page or a whole domain.</p>
+          </div>
+          <div class="terminal" aria-label="Example BeeCrawl API request">
+            <div class="terminal-bar">
+              <span class="live-dot" aria-hidden="true"></span>
+              <span>POST /v1/scrape</span>
+              <span class="terminal-status">200 OK</span>
+            </div>
+            <pre><code>{`curl -X POST https://api.beecrawl.dev/v1/scrape \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "formats": ["markdown", "links"]
+  }'`}</code></pre>
+            <div class="terminal-response">
+              <span>response</span>
+              <code>{`{
+  "success": true,
+  "data": { "markdown": "# Example..." }
+}`}</code>
+            </div>
+          </div>
         </div>
-        <ul class="endpoint-list">
-          {endpoints.map((endpoint) => <li><code>{endpoint}</code></li>)}
-        </ul>
+      </section>
+
+      <section id="features" class="features shell" aria-labelledby="features-heading">
+        <div class="features-intro">
+          <p class="kicker">The primitives you need</p>
+          <h2 id="features-heading">Useful from the first request.</h2>
+        </div>
+        <div class="feature-list">
+          {endpoints.map((endpoint, index) => (
+            <article class="feature">
+              <span class="feature-index">0{index + 1}</span>
+              <code>{endpoint.route}</code>
+              <h3>{endpoint.title}</h3>
+              <p>{endpoint.copy}</p>
+              <a href="https://github.com/jacoobwang/beecrawl" aria-label={`Learn about ${endpoint.route}`}>Explore <span aria-hidden="true">-&gt;</span></a>
+            </article>
+          ))}
+        </div>
       </section>
     </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <a class="brand" href="/">BeeCrawl<span class="brand-mark">.</span></a>
+        <p>Open-source web data infrastructure.</p>
+        <a href="https://github.com/jacoobwang/beecrawl">GitHub</a>
+      </div>
+    </footer>
   </body>
 </html>
