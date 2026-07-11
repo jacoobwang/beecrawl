@@ -47,6 +47,18 @@ a { color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .bee, .bee-wing { animation: none; } }
 .nav-links { display: flex; align-items: center; gap: 28px; color: var(--muted); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }.nav-links a:hover, .site-footer a:hover { color: var(--lime); }
 .nav-cta { padding: 11px 14px; border: 1px solid var(--lime); color: var(--lime); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }.nav-cta:hover { color: var(--bg); background: var(--lime); }
+.nav-products { position: relative; }
+.nav-products-trigger { display: inline-flex; align-items: center; gap: 6px; }
+.nav-products-chevron { font-size: 14px; line-height: .6; transition: transform 160ms ease; }
+.products-menu { position: absolute; top: calc(100% + 20px); left: 50%; z-index: 20; display: none; width: 320px; padding: 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 10px 10px 0 rgba(211, 146, 33, .42); transform: translateX(-50%); }
+.products-menu::before { position: absolute; top: -21px; right: 0; left: 0; height: 21px; content: ""; }
+.products-menu-label { margin: 4px 10px 8px; color: var(--amber); font: 700 9px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+.products-menu a { display: grid; gap: 7px; padding: 15px 14px; color: var(--text); text-transform: none; }
+.products-menu a:hover, .products-menu a:focus-visible { background: var(--panel-strong); color: var(--text); outline: 0; }
+.products-menu-title { font: 700 15px/1.1 Arial, Helvetica, sans-serif; }
+.products-menu-copy { color: var(--muted); font: 13px/1.35 Arial, Helvetica, sans-serif; letter-spacing: 0; }
+.nav-products:hover .products-menu, .nav-products:focus-within .products-menu { display: grid; }
+.nav-products:hover .nav-products-chevron, .nav-products:focus-within .nav-products-chevron { transform: rotate(180deg); }
 
 .hero { position: relative; min-height: min(760px, calc(100svh - 110px)); overflow: hidden; background: var(--bg); }
 .hero::after { position: absolute; inset: 26px; border: 1px solid rgba(201, 237, 72, .24); content: ""; pointer-events: none; }
@@ -125,4 +137,27 @@ h1 em { color: var(--lime); font-family: Georgia, serif; font-weight: 400; }.led
 /* Hide Mintlify's generated title on every documentation page. */
 #page-title {
   display: none;
+}
+
+.product-hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--bg); }
+.product-hero::after { position: absolute; inset: 26px; border: 1px solid rgba(201, 237, 72, .18); content: ""; pointer-events: none; }
+.product-hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, .9fr) minmax(420px, 1.1fr); align-items: center; gap: clamp(42px, 6vw, 92px); min-height: 610px; padding: 96px 0; }
+.product-hero-copy { max-width: 600px; }
+.product-hero h1 { max-width: 700px; white-space: pre-line; }
+.product-lede { max-width: 540px; margin-bottom: 34px; color: var(--muted); font-size: 18px; line-height: 1.6; }
+.product-terminal { overflow: hidden; border: 1px solid #687164; background: var(--panel); box-shadow: 10px 10px 0 rgba(211, 146, 33, .72); }
+.product-terminal pre { min-height: 230px; margin: 0; padding: 28px; overflow-x: auto; color: var(--text); font: 13px/1.7 "SFMono-Regular", Consolas, monospace; white-space: pre-wrap; }
+.product-details { padding: 112px 0; border-bottom: 1px solid var(--line); background: #0b100d; }
+.product-details-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 72px; }
+.product-details h2 { margin: 0; color: var(--text); font-size: clamp(2.5rem, 5vw, 4.6rem); line-height: .96; }
+.product-details h2 em { color: var(--lime); font-family: Georgia, serif; font-weight: 400; }
+.product-points { border-top: 1px solid var(--line); }
+.product-point { display: grid; grid-template-columns: 44px 1fr; gap: 16px; align-items: center; min-height: 78px; border-bottom: 1px solid var(--line); }
+.product-point span { color: var(--amber); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; }
+.product-point p { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.45; }
+
+@media (max-width: 800px) {
+  .product-hero-grid { grid-template-columns: 1fr; min-height: auto; padding: 76px 0; }
+  .product-details { padding: 72px 0; }
+  .product-details-grid { grid-template-columns: 1fr; gap: 36px; }
 }

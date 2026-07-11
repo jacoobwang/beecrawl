@@ -1,0 +1,102 @@
+---
+import "../../styles/global.css";
+import SiteHeader from "../../components/SiteHeader.astro";
+
+export function getStaticPaths() {
+  const products = {
+  search: {
+    label: "Product / Search",
+    title: "Search the web.\nBring back useful pages.",
+    description: "Find relevant pages through a single API and optionally return the page content your agent needs next.",
+    endpoint: "POST /search",
+    points: ["Query the web through one stable endpoint.", "Control result count and source selection.", "Pass results directly into your agent or pipeline."],
+    code: `curl -X POST https://api.beecrawl.dev/search \\
+  -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"web scraping API","limit":5}'`,
+  },
+  scrape: {
+    label: "Product / Scrape",
+    title: "Turn any URL\ninto clean data.",
+    description: "Extract markdown, HTML, links, and metadata from a page with one predictable request.",
+    endpoint: "POST /scrape",
+    points: ["Return markdown, HTML, links, or metadata.", "Use browser rendering when a page needs JavaScript.", "Reuse cached results for faster repeated requests."],
+    code: `curl -X POST https://api.beecrawl.dev/scrape \\
+  -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://example.com","formats":["markdown","links"]}'`,
+  },
+  crawl: {
+    label: "Product / Crawl",
+    title: "Traverse whole sites\nwith control.",
+    description: "Start an asynchronous crawl, monitor its progress, and collect normalized results across a site.",
+    endpoint: "POST /crawl",
+    points: ["Set page limits and discovery depth.", "Follow links without losing crawl state.", "Poll status and retrieve completed results."],
+    code: `curl -X POST https://api.beecrawl.dev/crawl \\
+  -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"url":"https://example.com","limit":100,"maxDepth":2}'`,
+  },
+  };
+
+  return Object.entries(products).map(([product, content]) => ({
+    params: { product },
+    props: { content },
+  }));
+}
+
+const { content } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta name="description" content={content.description} />
+    <title>{content.label} | BeeCrawl</title>
+  </head>
+  <body class="product-page">
+    <div class="release-banner">
+      <a href="https://github.com/jacoobwang/beecrawl">BeeCrawl is open source. Inspect the code on GitHub <span aria-hidden="true">-&gt;</span></a>
+    </div>
+
+    <SiteHeader />
+
+    <main>
+      <section class="product-hero">
+        <div class="shell product-hero-grid">
+          <div class="product-hero-copy">
+            <p class="kicker">{content.label}</p>
+            <h1>{content.title}</h1>
+            <p class="product-lede">{content.description}</p>
+            <div class="actions">
+              <a class="button button-dark" href="https://docs.beecrawl.dev/" target="_blank" rel="noopener noreferrer">Read the API docs <span aria-hidden="true">-&gt;</span></a>
+              <a class="text-link" href="/">Back to home <span aria-hidden="true">-&gt;</span></a>
+            </div>
+          </div>
+          <div class="product-terminal">
+            <div class="terminal-bar"><span class="live-dot" aria-hidden="true"></span><span>{content.endpoint}</span><span class="terminal-status">READY</span></div>
+            <pre><code>{content.code}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-details">
+        <div class="shell product-details-grid">
+          <div>
+            <p class="kicker">Built for useful output</p>
+            <h2>One endpoint.<br /><em>Clear results.</em></h2>
+          </div>
+          <div class="product-points">
+            {content.points.map((point, index) => (
+              <div class="product-point"><span>0{index + 1}</span><p>{point}</p></div>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer"><div class="shell footer-inner"><a class="brand" href="/"><span class="brand-copy">BeeCrawl<span class="brand-mark">.</span></span></a><p>Open-source web data infrastructure.</p><a href="https://github.com/jacoobwang/beecrawl">GitHub</a></div></footer>
+  </body>
+</html>
