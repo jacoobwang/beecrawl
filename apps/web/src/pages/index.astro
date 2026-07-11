@@ -1,4 +1,5 @@
 ---
+import { codeToHtml } from "shiki";
 import "../styles/global.css";
 
 const endpoints = [
@@ -24,17 +25,15 @@ const codeExamples = [
     id: "python",
     label: "Python SDK",
     filename: "request.py",
+    language: "python",
     code: `from beecrawl_sdk import BeeCrawlClient
 
-with BeeCrawlClient(
-    api_key="YOUR_API_KEY",
-    base_url="https://api.beecrawl.dev",
-) as client:
-    page = client.scrape(
-        "https://example.com",
-        formats=["markdown", "links"],
-        use_browser="auto",
-    )
+client = BeeCrawlClient(api_key="YOUR_API_KEY")
+page = client.scrape(
+    "https://example.com",
+    formats=["markdown", "links"],
+    use_browser="auto",
+)
 
 print(page["markdown"])`,
   },
@@ -42,6 +41,7 @@ print(page["markdown"])`,
     id: "rust",
     label: "Rust SDK",
     filename: "main.rs",
+    language: "rust",
     code: `use beecrawl_sdk::BeeCrawlClient;
 use serde_json::json;
 
@@ -66,6 +66,7 @@ async fn main() -> beecrawl_sdk::Result<()> {
     id: "curl",
     label: "cURL",
     filename: "terminal",
+    language: "bash",
     code: `curl -X POST https://api.beecrawl.dev/scrape \\
   -H "X-Web-Extract-Api-Key: YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
@@ -76,6 +77,34 @@ async fn main() -> beecrawl_sdk::Result<()> {
   }'`,
   },
 ];
+
+const resultExample = `# Example Domain
+
+Example Domain is for use in illustrative
+examples in documents and applications.
+
+## Links
+
+- https://www.iana.org/domains/example
+
+---
+source: https://example.com
+status: 200`;
+
+const highlightedCodeExamples = await Promise.all(
+  codeExamples.map(async (example) => ({
+    ...example,
+    highlighted: await codeToHtml(example.code, {
+      lang: example.language,
+      theme: "github-dark-default",
+    }),
+  })),
+);
+
+const highlightedResult = await codeToHtml(resultExample, {
+  lang: "markdown",
+  theme: "github-dark-default",
+});
 ---
 
 <!doctype html>
@@ -160,7 +189,7 @@ response  ready  response  ready</pre>
           <div class="code-workbench" data-code-workbench>
             <div class="code-toolbar">
               <div class="code-tabs" role="tablist" aria-label="Code examples">
-                {codeExamples.map((example, index) => (
+                {highlightedCodeExamples.map((example, index) => (
                   <button
                     class:list={["code-tab", { "is-active": index === 0 }]}
                     type="button"
@@ -178,22 +207,18 @@ response  ready  response  ready</pre>
             <div class="code-grid">
               <div class="code-pane" aria-label="BeeCrawl Python SDK example">
                 <div class="pane-label"><span class="live-dot" aria-hidden="true"></span> <span data-code-filename>request.py</span></div>
-                <pre>{codeExamples.map((example, index) => <code data-code-example={example.id} hidden={index !== 0}>{example.code}</code>)}</pre>
+                {highlightedCodeExamples.map((example, index) => (
+                  <div
+                    class="code-highlight"
+                    data-code-example={example.id}
+                    hidden={index !== 0}
+                    set:html={example.highlighted}
+                  />
+                ))}
               </div>
               <div class="result-pane" aria-label="Fixed BeeCrawl scrape result">
                 <div class="pane-label"><span class="result-dot" aria-hidden="true"></span> markdown</div>
-                <pre><code>{`# Example Domain
-
-Example Domain is for use in illustrative
-examples in documents and applications.
-
-## Links
-
-- https://www.iana.org/domains/example
-
----
-source: https://example.com
-status: 200`}</code></pre>
+                <div class="code-highlight result-highlight" set:html={highlightedResult} />
               </div>
             </div>
           </div>
