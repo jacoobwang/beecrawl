@@ -1,0 +1,71 @@
+---
+import "../styles/global.css";
+
+const endpoints = ["/scrape", "/crawl", "/map", "/search", "/extract"];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <meta
+      name="description"
+      content="BeeCrawl is an open-source API for reliable web extraction, crawling, and search."
+    />
+    <title>BeeCrawl | Web data, without the busywork</title>
+  </head>
+  <body>
+    <main>
+      <nav class="nav" aria-label="Primary navigation">
+        <a class="brand" href="/">BeeCrawl</a>
+        <a class="github-link" href="https://github.com/jacoobwang/beecrawl">GitHub</a>
+      </nav>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Open-source web data API</p>
+          <h1>Web data, without the busywork.</h1>
+          <p class="lede">
+            Extract pages, crawl sites, map links, and search the web through a
+            clean API built for dependable automation.
+          </p>
+          <div class="actions">
+            <a class="button primary" href="https://github.com/jacoobwang/beecrawl">View on GitHub</a>
+            <a class="button secondary" href="#api">Explore the API</a>
+          </div>
+        </div>
+
+        <div class="request-panel" aria-label="Example API request and response">
+          <div class="panel-topline">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span>POST /v1/scrape</span>
+            <span class="response-code">200</span>
+          </div>
+          <pre><code>{`{
+  "url": "https://example.com",
+  "formats": ["markdown", "links"]
+}`}</code></pre>
+          <div class="response-divider">response</div>
+          <pre><code class="response">{`{
+  "success": true,
+  "data": {
+    "markdown": "# Example Domain...",
+    "links": ["https://www.iana.org/domains/example"]
+  }
+}`}</code></pre>
+        </div>
+      </section>
+
+      <section id="api" class="api-section" aria-labelledby="api-heading">
+        <div>
+          <p class="eyebrow">One interface, useful primitives</p>
+          <h2 id="api-heading">Get the web into your workflow.</h2>
+        </div>
+        <ul class="endpoint-list">
+          {endpoints.map((endpoint) => <li><code>{endpoint}</code></li>)}
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "beecrawl",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "web:dev": "pnpm --filter @beecrawl/web dev",
+    "web:build": "pnpm --filter @beecrawl/web build"
+  }
+}
