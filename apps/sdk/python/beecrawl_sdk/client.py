@@ -31,7 +31,7 @@ class BeeCrawlClient:
         self,
         api_key: str | None = None,
         *,
-        base_url: str = "http://127.0.0.1:8000",
+        base_url: str,
         timeout: float = 60.0,
         client: httpx.Client | None = None,
     ) -> None:
@@ -156,7 +156,7 @@ class AsyncBeeCrawlClient:
         self,
         api_key: str | None = None,
         *,
-        base_url: str = "http://127.0.0.1:8000",
+        base_url: str,
         timeout: float = 60.0,
         client: httpx.AsyncClient | None = None,
     ) -> None:

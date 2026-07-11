@@ -6,6 +6,11 @@ import pytest
 from beecrawl_sdk import BeeCrawlClient, BeeCrawlError
 
 
+def test_client_requires_base_url():
+    with pytest.raises(TypeError, match="base_url"):
+        BeeCrawlClient()
+
+
 def test_client_sends_auth_and_scrape_options():
     requests = []
 
@@ -37,7 +42,10 @@ def test_client_parses_api_errors():
             json={"detail": {"code": "unauthorized", "message": "Invalid key"}},
         )
 
-    with BeeCrawlClient(client=httpx.Client(transport=httpx.MockTransport(handler))) as client:
+    with BeeCrawlClient(
+        base_url="http://api.test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ) as client:
         with pytest.raises(BeeCrawlError, match="Invalid key") as error:
             client.map("https://example.com")
 
@@ -53,7 +61,7 @@ def test_poll_crawl_until_terminal_state():
         ]
     )
 
-    with BeeCrawlClient() as client:
+    with BeeCrawlClient(base_url="http://api.test") as client:
         client.crawl_status = lambda *_args, **_kwargs: next(responses)
         result = client.poll_crawl("job-1", interval=0, timeout=1)
 

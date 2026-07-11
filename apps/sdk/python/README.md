@@ -21,7 +21,10 @@ uv pip install -e apps/sdk/python
 ```python
 from beecrawl_sdk import BeeCrawlClient
 
-client = BeeCrawlClient(api_key="your-key")
+client = BeeCrawlClient(
+    api_key="your-key",
+    base_url="https://api.beecrawl.dev",
+)
 page = client.scrape(
     "https://example.com",
     formats=["markdown", "html", "links"],
@@ -34,7 +37,7 @@ extracted = client.extract(
 )
 ```
 
-For local development, pass `base_url="http://127.0.0.1:8000"`.
+For local development, use `base_url="http://127.0.0.1:8000"`.
 
 Asynchronous jobs can be submitted and polled through the same client:
 

@@ -28,7 +28,10 @@ const codeExamples = [
     language: "python",
     code: `from beecrawl_sdk import BeeCrawlClient
 
-client = BeeCrawlClient(api_key="YOUR_API_KEY")
+client = BeeCrawlClient(
+    api_key="YOUR_API_KEY",
+    base_url="https://api.beecrawl.dev",
+)
 page = client.scrape(
     "https://example.com",
     formats=["markdown", "links"],
