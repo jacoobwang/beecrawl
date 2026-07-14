@@ -163,6 +163,7 @@ The API also exposes Firecrawl v2-compatible routes for applications using
 
 ```text
 POST   /v2/scrape
+POST   /v2/parse
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/{id}
@@ -178,6 +179,12 @@ supports Web results with optional scraping; requested news and image groups
 are returned empty until providers for those source types are added. Batch
 scrape, crawl error listing, and usage-account endpoints are not yet part of
 the compatibility surface.
+
+`POST /v2/parse` accepts a local PDF as `multipart/form-data`: a required
+`file` field and an optional JSON `options` field. It returns Markdown with
+`metadata.numPages`, `metadata.totalPages`, and `metadata.sourceFile`. The
+current parser supports text PDFs in `fast` or `auto` mode; OCR and non-PDF
+document formats are intentionally rejected.
 
 ## Quick Start
 

@@ -3,11 +3,12 @@ title: Firecrawl compatibility
 description: Keep existing Firecrawl v2 SDK integrations pointed at BeeCrawl.
 ---
 
-BeeCrawl exposes a Firecrawl v2-compatible surface for scrape, map, crawl,
-extract, and search:
+BeeCrawl exposes a Firecrawl v2-compatible surface for scrape, local PDF
+parse, map, crawl, extract, and search:
 
 ```text
 POST   /v2/scrape
+POST   /v2/parse
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/{id}
@@ -18,6 +19,13 @@ POST   /v2/search
 
 Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
 routes accept Firecrawl camelCase fields and return a `success` envelope.
+
+`POST /v2/parse` is synchronous multipart upload for local or non-public PDFs.
+Send `file=@report.pdf` and, optionally, an `options` JSON part. Markdown is
+the supported output; `parsers` accepts `{ "type": "pdf", "mode": "fast" |
+"auto", "maxPages": 1..10000 }`. The response includes `numPages`,
+`totalPages`, and `sourceFile` metadata. OCR and non-PDF document types are
+not implemented yet.
 
 The compatibility layer does not currently implement batch scrape, usage
 accounts, or Firecrawl's news and image search providers.

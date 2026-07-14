@@ -40,6 +40,29 @@ pub struct FirecrawlV2ScrapeRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct FirecrawlV2ParseOptions {
+    #[serde(
+        default = "default_formats",
+        deserialize_with = "deserialize_firecrawl_formats"
+    )]
+    pub formats: Vec<String>,
+    #[serde(default = "default_timeout_milliseconds")]
+    pub timeout: u64,
+    #[serde(default)]
+    pub parsers: Vec<FirecrawlV2FileParser>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2FileParser {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(rename = "maxPages")]
+    pub max_pages: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct FirecrawlV2CrawlRequest {
     pub url: String,
     #[serde(default = "default_crawl_limit")]

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -12,9 +12,9 @@ use tower_http::trace::TraceLayer;
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ScrapeRequest,
-    FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest, SearchScrapeOptions,
-    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ParseOptions,
+    FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest,
+    SearchScrapeOptions, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -50,6 +50,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/search", post(search_route))
         .route("/extract", post(extract))
         .route("/v2/scrape", post(firecrawl_v2_scrape))
+        .route("/v2/parse", post(firecrawl_v2_parse))
         .route("/v2/crawl", post(firecrawl_v2_crawl))
         .route(
             "/v2/crawl/:id",
@@ -59,6 +60,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/extract", post(firecrawl_v2_extract))
         .route("/v2/search", post(firecrawl_v2_search))
         .layer(TraceLayer::new_for_http())
+        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .with_state(Arc::new(state))
 }
 
@@ -253,6 +255,112 @@ async fn firecrawl_v2_scrape(
     )
     .await?;
     Ok(Json(json!({ "success": true, "data": firecrawl_document(response) })).into_response())
+}
+
+async fn firecrawl_v2_parse(
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let mut file = None;
+    let mut filename = None;
+    let mut options = FirecrawlV2ParseOptions {
+        formats: vec!["markdown".to_string()],
+        timeout: 30_000,
+        parsers: Vec::new(),
+    };
+
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        ApiError::InvalidRequest(format!("Invalid multipart form-data request: {error}"))
+    })? {
+        match field.name() {
+            Some("file") => {
+                filename = field.file_name().map(str::to_string);
+                file = Some(field.bytes().await.map_err(|error| {
+                    ApiError::InvalidRequest(format!("Could not read uploaded file: {error}"))
+                })?);
+            }
+            Some("options") => {
+                let value = field.text().await.map_err(|error| {
+                    ApiError::InvalidRequest(format!("Could not read parse options: {error}"))
+                })?;
+                options = serde_json::from_str(&value).map_err(|error| {
+                    ApiError::InvalidRequest(format!("Invalid parse options JSON: {error}"))
+                })?;
+            }
+            _ => {}
+        }
+    }
+
+    let filename =
+        filename.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?;
+    if !filename.to_ascii_lowercase().ends_with(".pdf") {
+        return Err(ApiError::InvalidRequest(
+            "Only PDF files are currently supported by /v2/parse".to_string(),
+        ));
+    }
+    let bytes = file.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?;
+    if !bytes.starts_with(b"%PDF-") {
+        return Err(ApiError::InvalidRequest(
+            "Uploaded file is not a PDF".to_string(),
+        ));
+    }
+    if options
+        .formats
+        .iter()
+        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+    {
+        return Err(ApiError::InvalidRequest(
+            "Only the markdown format is currently supported by /v2/parse".to_string(),
+        ));
+    }
+    if options.timeout > 300_000 {
+        return Err(ApiError::InvalidRequest(
+            "Parse timeout must not exceed 300000 milliseconds".to_string(),
+        ));
+    }
+    let parser = options
+        .parsers
+        .iter()
+        .find(|parser| parser.kind.eq_ignore_ascii_case("pdf"));
+    if options
+        .parsers
+        .iter()
+        .any(|parser| !parser.kind.eq_ignore_ascii_case("pdf"))
+    {
+        return Err(ApiError::InvalidRequest(
+            "Unsupported file parser".to_string(),
+        ));
+    }
+    if let Some(mode) = parser.and_then(|parser| parser.mode.as_deref()) {
+        if !matches!(mode, "fast" | "auto") {
+            return Err(ApiError::InvalidRequest(
+                "OCR PDF parsing is not currently supported".to_string(),
+            ));
+        }
+    }
+    let max_pages = parser.and_then(|parser| parser.max_pages);
+    if matches!(max_pages, Some(0)) || max_pages.is_some_and(|value| value > 10_000) {
+        return Err(ApiError::InvalidRequest(
+            "PDF maxPages must be between 1 and 10000".to_string(),
+        ));
+    }
+    let parsed = tokio::task::spawn_blocking(move || crate::pdf::parse(&bytes, max_pages))
+        .await
+        .map_err(|error| ApiError::Internal(format!("PDF parser failed: {error}")))?
+        .map_err(ApiError::InvalidRequest)?;
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "markdown": parsed.markdown,
+            "metadata": {
+                "numPages": parsed.num_pages,
+                "totalPages": parsed.total_pages,
+                "sourceFile": filename,
+            }
+        }
+    }))
+    .into_response())
 }
 
 async fn firecrawl_v2_map(
@@ -813,6 +921,21 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(request.formats, ["html", "markdown", "screenshot"]);
+    }
+
+    #[test]
+    fn firecrawl_v2_parse_accepts_pdf_parser_options() {
+        let options: FirecrawlV2ParseOptions = serde_json::from_value(json!({
+            "formats": [{ "type": "markdown" }],
+            "timeout": 120000,
+            "parsers": [{ "type": "pdf", "mode": "fast", "maxPages": 12 }]
+        }))
+        .unwrap();
+        assert_eq!(options.formats, ["markdown"]);
+        assert_eq!(options.timeout, 120_000);
+        assert_eq!(options.parsers[0].kind, "pdf");
+        assert_eq!(options.parsers[0].mode.as_deref(), Some("fast"));
+        assert_eq!(options.parsers[0].max_pages, Some(12));
     }
 
     #[test]
