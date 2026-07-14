@@ -6,15 +6,17 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use base64::Engine as _;
 use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2ParseOptions,
-    FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest,
-    SearchScrapeOptions, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlV2Base64ParseRequest, FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest,
+    FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
+    ScrapeResponse, SearchRequest, SearchScrapeOptions, WebExtractMapRequest,
+    WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -51,6 +53,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/extract", post(extract))
         .route("/v2/scrape", post(firecrawl_v2_scrape))
         .route("/v2/parse", post(firecrawl_v2_parse))
+        .route("/v2/parse/base64", post(firecrawl_v2_parse_base64))
         .route("/v2/crawl", post(firecrawl_v2_crawl))
         .route(
             "/v2/crawl/:id",
@@ -60,7 +63,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/extract", post(firecrawl_v2_extract))
         .route("/v2/search", post(firecrawl_v2_search))
         .layer(TraceLayer::new_for_http())
-        .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
+        .layer(DefaultBodyLimit::max(70 * 1024 * 1024))
         .with_state(Arc::new(state))
 }
 
@@ -264,11 +267,7 @@ async fn firecrawl_v2_parse(
     require_auth(&headers)?;
     let mut file = None;
     let mut filename = None;
-    let mut options = FirecrawlV2ParseOptions {
-        formats: vec!["markdown".to_string()],
-        timeout: 30_000,
-        parsers: Vec::new(),
-    };
+    let mut options = FirecrawlV2ParseOptions::default();
 
     while let Some(field) = multipart.next_field().await.map_err(|error| {
         ApiError::InvalidRequest(format!("Invalid multipart form-data request: {error}"))
@@ -292,14 +291,48 @@ async fn firecrawl_v2_parse(
         }
     }
 
-    let filename =
-        filename.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?;
+    parse_pdf_response(
+        filename.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?,
+        file.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?,
+        options,
+    )
+    .await
+}
+
+async fn firecrawl_v2_parse_base64(
+    headers: HeaderMap,
+    Json(request): Json<FirecrawlV2Base64ParseRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let bytes = decode_base64_pdf(&request.base64)?;
+    parse_pdf_response(request.filename, bytes.into(), request.options).await
+}
+
+fn decode_base64_pdf(value: &str) -> Result<Vec<u8>, ApiError> {
+    let encoded = value
+        .trim()
+        .strip_prefix("data:application/pdf;base64,")
+        .unwrap_or(value.trim());
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| ApiError::InvalidRequest(format!("Invalid PDF base64 data: {error}")))
+}
+
+async fn parse_pdf_response(
+    filename: String,
+    bytes: axum::body::Bytes,
+    options: FirecrawlV2ParseOptions,
+) -> Result<Response, ApiError> {
+    if bytes.len() > 50 * 1024 * 1024 {
+        return Err(ApiError::InvalidRequest(
+            "PDF file must not exceed 50 MB".to_string(),
+        ));
+    }
     if !filename.to_ascii_lowercase().ends_with(".pdf") {
         return Err(ApiError::InvalidRequest(
             "Only PDF files are currently supported by /v2/parse".to_string(),
         ));
     }
-    let bytes = file.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?;
     if !bytes.starts_with(b"%PDF-") {
         return Err(ApiError::InvalidRequest(
             "Uploaded file is not a PDF".to_string(),
@@ -936,6 +969,14 @@ mod tests {
         assert_eq!(options.parsers[0].kind, "pdf");
         assert_eq!(options.parsers[0].mode.as_deref(), Some("fast"));
         assert_eq!(options.parsers[0].max_pages, Some(12));
+    }
+
+    #[test]
+    fn parse_base64_accepts_bare_and_data_url_values() {
+        let bare = decode_base64_pdf("JVBERi0=").unwrap();
+        let data_url = decode_base64_pdf("data:application/pdf;base64,JVBERi0=").unwrap();
+        assert_eq!(bare, b"%PDF-");
+        assert_eq!(data_url, bare);
     }
 
     #[test]

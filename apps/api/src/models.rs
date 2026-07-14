@@ -52,6 +52,25 @@ pub struct FirecrawlV2ParseOptions {
     pub parsers: Vec<FirecrawlV2FileParser>,
 }
 
+impl Default for FirecrawlV2ParseOptions {
+    fn default() -> Self {
+        Self {
+            formats: default_formats(),
+            timeout: default_timeout_milliseconds(),
+            parsers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FirecrawlV2Base64ParseRequest {
+    #[serde(alias = "data")]
+    pub base64: String,
+    pub filename: String,
+    #[serde(default)]
+    pub options: FirecrawlV2ParseOptions,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct FirecrawlV2FileParser {
     #[serde(rename = "type")]

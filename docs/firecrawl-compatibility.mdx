@@ -9,6 +9,7 @@ parse, map, crawl, extract, and search:
 ```text
 POST   /v2/scrape
 POST   /v2/parse
+POST   /v2/parse/base64
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/{id}
@@ -26,6 +27,20 @@ the supported output; `parsers` accepts `{ "type": "pdf", "mode": "fast" |
 "auto", "maxPages": 1..10000 }`. The response includes `numPages`,
 `totalPages`, and `sourceFile` metadata. OCR and non-PDF document types are
 not implemented yet.
+
+For clients that cannot send multipart bodies, `POST /v2/parse/base64` accepts
+JSON instead:
+
+```json
+{
+  "base64": "data:application/pdf;base64,JVBERi0...",
+  "filename": "report.pdf",
+  "options": { "parsers": [{ "type": "pdf", "maxPages": 10 }] }
+}
+```
+
+`data` is accepted as an alias for `base64`; both bare Base64 and a PDF data
+URL are valid. The decoded PDF limit remains 50 MB.
 
 The compatibility layer does not currently implement batch scrape, usage
 accounts, or Firecrawl's news and image search providers.

@@ -164,6 +164,7 @@ The API also exposes Firecrawl v2-compatible routes for applications using
 ```text
 POST   /v2/scrape
 POST   /v2/parse
+POST   /v2/parse/base64
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/{id}
@@ -185,6 +186,10 @@ the compatibility surface.
 `metadata.numPages`, `metadata.totalPages`, and `metadata.sourceFile`. The
 current parser supports text PDFs in `fast` or `auto` mode; OCR and non-PDF
 document formats are intentionally rejected.
+
+For JSON-only callers, `POST /v2/parse/base64` accepts `base64` (or `data`),
+`filename`, and optional `options`. It accepts either bare Base64 or a
+`data:application/pdf;base64,...` value; decoded PDFs remain limited to 50 MB.
 
 ## Quick Start
 
