@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -14,9 +15,9 @@ use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
     FirecrawlV2Base64ParseRequest, FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest,
-    FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
-    ScrapeResponse, SearchRequest, SearchScrapeOptions, WebExtractMapRequest,
-    WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlV2MapRequest, FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest,
+    FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest, SearchScrapeOptions,
+    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -242,9 +243,19 @@ async fn run_extract(
 async fn firecrawl_v2_scrape(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(request): Json<FirecrawlV2ScrapeRequest>,
+    payload: Result<Json<FirecrawlV2ScrapeRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    validate_firecrawl_scrape_options(
+        request.only_main_content,
+        request.remove_base64_images,
+        request.fast_mode,
+        request.block_ads,
+        request.store_in_cache,
+        request.max_age,
+        request.mobile,
+    )?;
     let response = web_extract::scrape_with_cache(
         &state.client,
         &state.cache,
@@ -255,7 +266,7 @@ async fn firecrawl_v2_scrape(
             timeout_seconds: request.timeout.div_ceil(1_000).max(1),
             wait_for_ms: request.wait_for_ms,
             use_browser: "auto".to_string(),
-            skip_tls_verification: false,
+            skip_tls_verification: request.skip_tls_verification.unwrap_or(false),
         },
     )
     .await?;
@@ -303,9 +314,10 @@ async fn firecrawl_v2_parse(
 
 async fn firecrawl_v2_parse_base64(
     headers: HeaderMap,
-    Json(request): Json<FirecrawlV2Base64ParseRequest>,
+    payload: Result<Json<FirecrawlV2Base64ParseRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
     let bytes = decode_base64_pdf(&request.base64)?;
     parse_pdf_response(request.filename, bytes.into(), request.options).await
 }
@@ -401,20 +413,41 @@ async fn parse_pdf_response(
 async fn firecrawl_v2_map(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(request): Json<WebExtractMapRequest>,
+    payload: Result<Json<FirecrawlV2MapRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
-    let response = web_extract::map_site(&state.client, request).await?;
+    let Json(request) = firecrawl_json(payload)?;
+    let response = web_extract::map_site(&state.client, request.into()).await?;
     Ok(Json(json!({ "success": true, "links": response.links })).into_response())
 }
 
 async fn firecrawl_v2_crawl(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(request): Json<FirecrawlV2CrawlRequest>,
+    payload: Result<Json<FirecrawlV2CrawlRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    validate_firecrawl_crawl_defaults(&request)?;
     let scrape = request.scrape_options.unwrap_or_default();
+    validate_firecrawl_scrape_options(
+        scrape.only_main_content,
+        scrape.remove_base64_images,
+        scrape.fast_mode,
+        scrape.block_ads,
+        scrape.store_in_cache,
+        scrape.max_age,
+        scrape.mobile,
+    )?;
+    if scrape
+        .formats
+        .iter()
+        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+    {
+        return Err(ApiError::InvalidRequest(
+            "BeeCrawl crawl currently supports only the markdown scrape format".to_string(),
+        ));
+    }
     let response = state
         .crawls
         .enqueue(CrawlRequest {
@@ -426,7 +459,7 @@ async fn firecrawl_v2_crawl(
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
-            skip_tls_verification: false,
+            skip_tls_verification: scrape.skip_tls_verification.unwrap_or(false),
             max_retries: 2,
         })
         .await?;
@@ -465,12 +498,18 @@ async fn firecrawl_v2_cancel_crawl(
 async fn firecrawl_v2_extract(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(request): Json<FirecrawlV2ExtractRequest>,
+    payload: Result<Json<FirecrawlV2ExtractRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
     if request.urls.is_empty() {
         return Err(ApiError::InvalidRequest(
             "Firecrawl v2 extract requires at least one URL".to_string(),
+        ));
+    }
+    if request.enable_web_search {
+        return Err(ApiError::InvalidRequest(
+            "BeeCrawl extract does not support enableWebSearch".to_string(),
         ));
     }
     let mut pages = Vec::with_capacity(request.urls.len());
@@ -528,7 +567,6 @@ async fn firecrawl_v2_extract(
             "urls": request.urls,
         })
     });
-    let _ = request.enable_web_search;
     Ok(Json(json!({
         "success": true,
         "status": "completed",
@@ -541,9 +579,10 @@ async fn firecrawl_v2_extract(
 async fn firecrawl_v2_search(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Json(request): Json<FirecrawlV2SearchRequest>,
+    payload: Result<Json<FirecrawlV2SearchRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
     if request.query.trim().is_empty() {
         return Err(ApiError::InvalidRequest(
             "Firecrawl v2 search query cannot be empty".to_string(),
@@ -552,6 +591,12 @@ async fn firecrawl_v2_search(
     if !(1..=100).contains(&request.limit) {
         return Err(ApiError::InvalidRequest(
             "Firecrawl v2 search limit must be between 1 and 100".to_string(),
+        ));
+    }
+    if request.timeout.is_some_and(|timeout| timeout != 300_000) {
+        return Err(ApiError::InvalidRequest(
+            "BeeCrawl search currently supports only the Firecrawl default timeout=300000"
+                .to_string(),
         ));
     }
 
@@ -575,6 +620,18 @@ async fn firecrawl_v2_search(
         return Ok(Json(json!({ "success": true, "data": data })).into_response());
     }
 
+    if let Some(options) = &request.scrape_options {
+        validate_firecrawl_scrape_options(
+            options.only_main_content,
+            options.remove_base64_images,
+            options.fast_mode,
+            options.block_ads,
+            options.store_in_cache,
+            options.max_age,
+            options.mobile,
+        )?;
+    }
+
     let response = search::search(
         &state.client,
         SearchRequest {
@@ -587,7 +644,7 @@ async fn firecrawl_v2_search(
                 timeout_seconds: options.timeout.div_ceil(1_000).max(1),
                 wait_for_ms: options.wait_for_ms,
                 use_browser: "auto".to_string(),
-                skip_tls_verification: false,
+                skip_tls_verification: options.skip_tls_verification.unwrap_or(false),
             }),
         },
     )
@@ -608,6 +665,88 @@ async fn firecrawl_v2_search(
         data.insert("images".to_string(), json!([]));
     }
     Ok(Json(json!({ "success": true, "data": data })).into_response())
+}
+
+fn firecrawl_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<Json<T>, ApiError> {
+    payload.map_err(|error| ApiError::InvalidRequest(error.body_text()))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn validate_firecrawl_scrape_options(
+    only_main_content: Option<bool>,
+    remove_base64_images: Option<bool>,
+    fast_mode: Option<bool>,
+    block_ads: Option<bool>,
+    store_in_cache: Option<bool>,
+    max_age: Option<u64>,
+    mobile: Option<bool>,
+) -> Result<(), ApiError> {
+    let unsupported = [
+        (only_main_content == Some(false), "onlyMainContent=false"),
+        (
+            remove_base64_images == Some(false),
+            "removeBase64Images=false",
+        ),
+        (fast_mode == Some(true), "fastMode=true"),
+        (block_ads == Some(false), "blockAds=false"),
+        (store_in_cache == Some(false), "storeInCache=false"),
+        (mobile == Some(true), "mobile=true"),
+        (
+            max_age.is_some_and(|value| value != 14_400_000),
+            "maxAge other than 14400000",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(is_unsupported, name)| is_unsupported.then_some(name))
+    .collect::<Vec<_>>();
+    if unsupported.is_empty() {
+        Ok(())
+    } else {
+        Err(ApiError::InvalidRequest(format!(
+            "BeeCrawl does not support these Firecrawl scrape option values: {}",
+            unsupported.join(", ")
+        )))
+    }
+}
+
+fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Result<(), ApiError> {
+    let unsupported = [
+        (
+            request.deduplicate_similar_urls == Some(false),
+            "deduplicateSimilarURLs=false",
+        ),
+        (
+            request.crawl_entire_domain == Some(true),
+            "crawlEntireDomain=true",
+        ),
+        (
+            request.allow_external_links == Some(true),
+            "allowExternalLinks=true",
+        ),
+        (
+            request.ignore_robots_txt == Some(true),
+            "ignoreRobotsTxt=true",
+        ),
+        (
+            request.regex_on_full_url == Some(true),
+            "regexOnFullURL=true",
+        ),
+        (
+            request.zero_data_retention == Some(true),
+            "zeroDataRetention=true",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(is_unsupported, name)| is_unsupported.then_some(name))
+    .collect::<Vec<_>>();
+    if unsupported.is_empty() {
+        Ok(())
+    } else {
+        Err(ApiError::InvalidRequest(format!(
+            "BeeCrawl does not support these Firecrawl crawl option values: {}",
+            unsupported.join(", ")
+        )))
+    }
 }
 
 fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::Value {
@@ -952,13 +1091,135 @@ mod tests {
     }
 
     #[test]
-    fn firecrawl_v2_formats_accept_strings_and_objects() {
+    fn firecrawl_v2_formats_accept_strings_and_optionless_objects() {
         let request: FirecrawlV2ScrapeRequest = serde_json::from_value(json!({
             "url": "https://example.com",
-            "formats": ["html", { "type": "markdown" }, { "type": "screenshot", "fullPage": true }]
+            "formats": ["html", { "type": "markdown" }, { "type": "screenshot" }]
         }))
         .unwrap();
         assert_eq!(request.formats, ["html", "markdown", "screenshot"]);
+    }
+
+    #[test]
+    fn firecrawl_v2_rejects_format_options_that_would_be_ignored() {
+        let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [{ "type": "screenshot", "fullPage": false }]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("options are not supported"));
+        assert!(error.to_string().contains("fullPage"));
+    }
+
+    #[test]
+    fn firecrawl_v2_rejects_unsupported_formats() {
+        let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [{ "type": "json" }]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("format 'json' is not supported"));
+    }
+
+    #[test]
+    fn firecrawl_v2_rejects_unknown_request_fields() {
+        let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": ["markdown"],
+            "actions": [{ "type": "click", "selector": "button" }]
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("unknown field `actions`"));
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_contract_errors_are_json_400_responses() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/scrape")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"https://example.com","formats":[{"type":"json","schema":{"type":"object"}}]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(error["success"], false);
+        assert!(error["error"]
+            .as_str()
+            .unwrap()
+            .contains("options are not supported"));
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_accepts_official_sdk_scrape_defaults() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/scrape")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"http://127.0.0.1:1","onlyMainContent":true,"skipTlsVerification":true,"removeBase64Images":true,"fastMode":false,"blockAds":true,"storeInCache":true,"maxAge":14400000,"formats":["markdown"],"mobile":false,"origin":"python-sdk"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_rejects_unsupported_semantic_option_values() {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/scrape")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"https://example.com","formats":["markdown"],"mobile":true,"fastMode":true}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(error["error"].as_str().unwrap().contains("mobile=true"));
+        assert!(error["error"].as_str().unwrap().contains("fastMode=true"));
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_crawl_rejects_non_markdown_formats_before_enqueue() {
+        let app = app_with_crawls(CrawlStore::unavailable("Postgres is not configured"));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/crawl")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"https://example.com","scrapeOptions":{"formats":["html"]}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(error["error"]
+            .as_str()
+            .unwrap()
+            .contains("only the markdown scrape format"));
     }
 
     #[test]

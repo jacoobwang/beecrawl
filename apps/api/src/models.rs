@@ -27,8 +27,11 @@ pub struct WebExtractLocation {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ScrapeRequest {
     pub url: String,
+    #[serde(default)]
+    pub origin: Option<String>,
     #[serde(
         default = "default_formats",
         deserialize_with = "deserialize_firecrawl_formats"
@@ -39,10 +42,28 @@ pub struct FirecrawlV2ScrapeRequest {
     pub timeout: u64,
     #[serde(rename = "waitFor", default)]
     pub wait_for_ms: u64,
+    #[serde(rename = "onlyMainContent")]
+    pub only_main_content: Option<bool>,
+    #[serde(rename = "skipTlsVerification")]
+    pub skip_tls_verification: Option<bool>,
+    #[serde(rename = "removeBase64Images")]
+    pub remove_base64_images: Option<bool>,
+    #[serde(rename = "fastMode")]
+    pub fast_mode: Option<bool>,
+    #[serde(rename = "blockAds")]
+    pub block_ads: Option<bool>,
+    #[serde(rename = "storeInCache")]
+    pub store_in_cache: Option<bool>,
+    #[serde(rename = "maxAge")]
+    pub max_age: Option<u64>,
+    pub mobile: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ParseOptions {
+    #[serde(default)]
+    pub origin: Option<String>,
     #[serde(
         default = "default_formats",
         deserialize_with = "deserialize_firecrawl_formats"
@@ -57,6 +78,7 @@ pub struct FirecrawlV2ParseOptions {
 impl Default for FirecrawlV2ParseOptions {
     fn default() -> Self {
         Self {
+            origin: None,
             formats: default_formats(),
             timeout: default_timeout_milliseconds(),
             parsers: Vec::new(),
@@ -65,6 +87,7 @@ impl Default for FirecrawlV2ParseOptions {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2Base64ParseRequest {
     #[serde(alias = "data")]
     pub base64: String,
@@ -74,6 +97,7 @@ pub struct FirecrawlV2Base64ParseRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2FileParser {
     #[serde(rename = "type")]
     pub kind: String,
@@ -84,8 +108,11 @@ pub struct FirecrawlV2FileParser {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2CrawlRequest {
     pub url: String,
+    #[serde(default)]
+    pub origin: Option<String>,
     #[serde(default = "default_crawl_limit")]
     pub limit: usize,
     #[serde(
@@ -97,6 +124,18 @@ pub struct FirecrawlV2CrawlRequest {
     pub max_discovery_depth: usize,
     #[serde(rename = "allowSubdomains", default)]
     pub allow_subdomains: bool,
+    #[serde(rename = "deduplicateSimilarURLs")]
+    pub deduplicate_similar_urls: Option<bool>,
+    #[serde(rename = "crawlEntireDomain")]
+    pub crawl_entire_domain: Option<bool>,
+    #[serde(rename = "allowExternalLinks")]
+    pub allow_external_links: Option<bool>,
+    #[serde(rename = "ignoreRobotsTxt")]
+    pub ignore_robots_txt: Option<bool>,
+    #[serde(rename = "regexOnFullURL")]
+    pub regex_on_full_url: Option<bool>,
+    #[serde(rename = "zeroDataRetention")]
+    pub zero_data_retention: Option<bool>,
     #[serde(
         rename = "ignoreQueryParameters",
         default = "default_ignore_query_parameters"
@@ -107,6 +146,7 @@ pub struct FirecrawlV2CrawlRequest {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ScrapeOptions {
     #[serde(default, deserialize_with = "deserialize_firecrawl_formats")]
     pub formats: Vec<String>,
@@ -114,10 +154,28 @@ pub struct FirecrawlV2ScrapeOptions {
     pub timeout: u64,
     #[serde(rename = "waitFor", default)]
     pub wait_for_ms: u64,
+    #[serde(rename = "onlyMainContent")]
+    pub only_main_content: Option<bool>,
+    #[serde(rename = "skipTlsVerification")]
+    pub skip_tls_verification: Option<bool>,
+    #[serde(rename = "removeBase64Images")]
+    pub remove_base64_images: Option<bool>,
+    #[serde(rename = "fastMode")]
+    pub fast_mode: Option<bool>,
+    #[serde(rename = "blockAds")]
+    pub block_ads: Option<bool>,
+    #[serde(rename = "storeInCache")]
+    pub store_in_cache: Option<bool>,
+    #[serde(rename = "maxAge")]
+    pub max_age: Option<u64>,
+    pub mobile: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ExtractRequest {
+    #[serde(default)]
+    pub origin: Option<String>,
     #[serde(default)]
     pub urls: Vec<String>,
     #[serde(default)]
@@ -131,10 +189,14 @@ pub struct FirecrawlV2ExtractRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FirecrawlV2SearchRequest {
     pub query: String,
+    #[serde(default)]
+    pub origin: Option<String>,
     #[serde(default = "default_search_limit")]
     pub limit: usize,
+    pub timeout: Option<u64>,
     #[serde(default)]
     pub sources: Vec<FirecrawlV2Source>,
     #[serde(rename = "scrapeOptions", default)]
@@ -145,14 +207,54 @@ pub struct FirecrawlV2SearchRequest {
 #[serde(untagged)]
 pub enum FirecrawlV2Source {
     Name(String),
-    Config { r#type: String },
+    Config(FirecrawlV2SourceConfig),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrawlV2SourceConfig {
+    pub r#type: String,
 }
 
 impl FirecrawlV2Source {
     pub fn name(&self) -> &str {
         match self {
             Self::Name(name) => name,
-            Self::Config { r#type } => r#type,
+            Self::Config(config) => &config.r#type,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrawlV2MapRequest {
+    pub url: String,
+    #[serde(default)]
+    pub origin: Option<String>,
+    pub search: Option<String>,
+    #[serde(default = "default_map_limit")]
+    pub limit: usize,
+    #[serde(rename = "includeSubdomains", default)]
+    pub include_subdomains: bool,
+    #[serde(default = "default_sitemap")]
+    pub sitemap: String,
+    #[serde(
+        rename = "ignoreQueryParameters",
+        default = "default_ignore_query_parameters"
+    )]
+    pub ignore_query_parameters: bool,
+}
+
+impl From<FirecrawlV2MapRequest> for WebExtractMapRequest {
+    fn from(request: FirecrawlV2MapRequest) -> Self {
+        Self {
+            url: request.url,
+            search: request.search,
+            limit: request.limit,
+            include_subdomains: request.include_subdomains,
+            sitemap: request.sitemap,
+            ignore_sitemap: false,
+            ignore_query_parameters: request.ignore_query_parameters,
         }
     }
 }
@@ -465,16 +567,39 @@ where
     let formats = Vec::<Value>::deserialize(deserializer)?;
     formats
         .into_iter()
-        .map(|format| match format {
-            Value::String(name) => Ok(name),
-            Value::Object(options) => options
-                .get("type")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .ok_or_else(|| D::Error::custom("format object must contain a string type")),
-            _ => Err(D::Error::custom(
-                "format must be a string or an object containing type",
-            )),
+        .map(|format| {
+            let name = match format {
+                Value::String(name) => name,
+                Value::Object(mut options) => {
+                    let name = options
+                        .remove("type")
+                        .and_then(|value| value.as_str().map(str::to_string))
+                        .ok_or_else(|| {
+                            D::Error::custom("format object must contain a string type")
+                        })?;
+                    if !options.is_empty() {
+                        let fields = options.keys().cloned().collect::<Vec<_>>().join(", ");
+                        return Err(D::Error::custom(format!(
+                            "Firecrawl format '{name}' options are not supported: {fields}"
+                        )));
+                    }
+                    name
+                }
+                _ => {
+                    return Err(D::Error::custom(
+                        "format must be a string or an object containing type",
+                    ))
+                }
+            };
+            if !matches!(
+                name.as_str(),
+                "markdown" | "html" | "rawHtml" | "links" | "screenshot"
+            ) {
+                return Err(D::Error::custom(format!(
+                    "Firecrawl format '{name}' is not supported by BeeCrawl"
+                )));
+            }
+            Ok(name)
         })
         .collect()
 }
