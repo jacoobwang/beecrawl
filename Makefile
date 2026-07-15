@@ -16,7 +16,7 @@ db-down:
 	docker compose down
 
 api:
-	HOST=$(HOST) PORT=$(PORT) $(CARGO) run -p beecrawl-api
+	HOST=$(HOST) PORT=$(PORT) $(CARGO) run -p beecrawl-api --bin beecrawl-api
 
 worker:
 	$(CARGO) run -p beecrawl-api --bin worker
