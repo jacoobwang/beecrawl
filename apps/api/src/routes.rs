@@ -185,6 +185,7 @@ async fn run_extract(
             timeout_seconds: request.timeout_seconds,
             wait_for_ms: request.wait_for_ms,
             use_browser: request.use_browser.clone(),
+            skip_tls_verification: false,
         },
     )
     .await?;
@@ -254,6 +255,7 @@ async fn firecrawl_v2_scrape(
             timeout_seconds: request.timeout.div_ceil(1_000).max(1),
             wait_for_ms: request.wait_for_ms,
             use_browser: "auto".to_string(),
+            skip_tls_verification: false,
         },
     )
     .await?;
@@ -424,6 +426,7 @@ async fn firecrawl_v2_crawl(
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
+            skip_tls_verification: false,
             max_retries: 2,
         })
         .await?;
@@ -483,6 +486,7 @@ async fn firecrawl_v2_extract(
                     timeout_seconds: 30,
                     wait_for_ms: 0,
                     use_browser: "auto".to_string(),
+                    skip_tls_verification: false,
                 },
             )
             .await?,
@@ -583,6 +587,7 @@ async fn firecrawl_v2_search(
                 timeout_seconds: options.timeout.div_ceil(1_000).max(1),
                 wait_for_ms: options.wait_for_ms,
                 use_browser: "auto".to_string(),
+                skip_tls_verification: false,
             }),
         },
     )

@@ -15,6 +15,8 @@ pub struct WebExtractScrapeRequest {
     pub wait_for_ms: u64,
     #[serde(default = "default_use_browser")]
     pub use_browser: String,
+    #[serde(rename = "skipTlsVerification", default)]
+    pub skip_tls_verification: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -233,6 +235,8 @@ pub struct CrawlRequest {
     pub wait_for_ms: u64,
     #[serde(rename = "useBrowser", default = "default_use_browser")]
     pub use_browser: String,
+    #[serde(rename = "skipTlsVerification", default)]
+    pub skip_tls_verification: bool,
     #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
     pub max_retries: usize,
 }
@@ -246,6 +250,8 @@ pub struct BatchScrapeRequest {
     pub wait_for_ms: u64,
     #[serde(default = "default_use_browser")]
     pub use_browser: String,
+    #[serde(rename = "skipTlsVerification", default)]
+    pub skip_tls_verification: bool,
     #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
     pub max_retries: usize,
 }
@@ -332,6 +338,8 @@ pub struct SearchScrapeOptions {
     pub wait_for_ms: u64,
     #[serde(default = "default_use_browser")]
     pub use_browser: String,
+    #[serde(rename = "skipTlsVerification", default)]
+    pub skip_tls_verification: bool,
 }
 
 #[derive(Debug, Serialize)]

@@ -95,7 +95,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(days => $11))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, now() + make_interval(days => $12))",
         )
         .bind(id)
         .bind(&url)
@@ -106,6 +106,7 @@ impl CrawlStore {
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
+        .bind(request.skip_tls_verification)
         .bind(request.max_retries as i32)
         .bind(crawl_retention_days())
         .execute(&mut *transaction)
@@ -151,7 +152,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, now() + make_interval(days => $8))",
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, now() + make_interval(days => $9))",
         )
         .bind(id)
         .bind(&urls[0])
@@ -159,6 +160,7 @@ impl CrawlStore {
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
+        .bind(request.skip_tls_verification)
         .bind(request.max_retries as i32)
         .bind(crawl_retention_days())
         .execute(&mut *transaction)
@@ -283,7 +285,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -296,6 +298,7 @@ impl CrawlStore {
             timeout_seconds: row.try_get::<i64, _>("timeout_seconds")? as u64,
             wait_for_ms: row.try_get::<i64, _>("wait_for_ms")? as u64,
             use_browser: row.try_get("use_browser")?,
+            skip_tls_verification: row.try_get("skip_tls_verification")?,
             cancelled: row.try_get("cancel_requested")?,
         })
     }
@@ -423,6 +426,7 @@ async fn process_task(
             timeout_seconds: options.timeout_seconds,
             wait_for_ms: options.wait_for_ms,
             use_browser: options.use_browser.clone(),
+            skip_tls_verification: options.skip_tls_verification,
         },
     )
     .await;
@@ -475,6 +479,7 @@ struct CrawlOptions {
     timeout_seconds: u64,
     wait_for_ms: u64,
     use_browser: String,
+    skip_tls_verification: bool,
     cancelled: bool,
 }
 
@@ -563,6 +568,7 @@ mod tests {
             timeout_seconds: 5,
             wait_for_ms: 0,
             use_browser: "never".to_string(),
+            skip_tls_verification: false,
             max_retries,
         }
     }
@@ -666,6 +672,7 @@ mod tests {
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),
+                skip_tls_verification: false,
                 max_retries: 0,
             })
             .await

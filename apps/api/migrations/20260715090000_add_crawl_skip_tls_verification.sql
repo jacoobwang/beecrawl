@@ -1,0 +1,2 @@
+ALTER TABLE crawl_jobs
+  ADD COLUMN IF NOT EXISTS skip_tls_verification BOOLEAN NOT NULL DEFAULT FALSE;

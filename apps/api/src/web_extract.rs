@@ -155,6 +155,7 @@ fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String 
         "use_browser": &request.use_browser,
         "wait_for_ms": request.wait_for_ms,
         "location": &request.location,
+        "skip_tls_verification": request.skip_tls_verification,
     }))
     .expect("cache key payload serializes");
     format!("scrape:{:x}", Sha256::digest(payload))
@@ -211,7 +212,13 @@ async fn scrape_page(
             Ok(page_to_markdown(page))
         }
         "never" => {
-            let page = fetch_page(client, &request.url, request.timeout_seconds).await?;
+            let page = fetch_page_with_tls(
+                client,
+                &request.url,
+                request.timeout_seconds,
+                request.skip_tls_verification,
+            )
+            .await?;
             Ok(page_to_markdown(page))
         }
         _ => match render_page(client, request).await {
@@ -220,12 +227,24 @@ async fn scrape_page(
                 if !markdown.trim().is_empty() {
                     Ok((page, markdown, metadata))
                 } else {
-                    let page = fetch_page(client, &request.url, request.timeout_seconds).await?;
+                    let page = fetch_page_with_tls(
+                        client,
+                        &request.url,
+                        request.timeout_seconds,
+                        request.skip_tls_verification,
+                    )
+                    .await?;
                     Ok(page_to_markdown(page))
                 }
             }
             Err(_) => {
-                let page = fetch_page(client, &request.url, request.timeout_seconds).await?;
+                let page = fetch_page_with_tls(
+                    client,
+                    &request.url,
+                    request.timeout_seconds,
+                    request.skip_tls_verification,
+                )
+                .await?;
                 Ok(page_to_markdown(page))
             }
         },
@@ -237,7 +256,26 @@ pub async fn fetch_page(
     raw_url: &str,
     timeout_seconds: u64,
 ) -> Result<ProviderPage, WebExtractError> {
+    fetch_page_with_tls(client, raw_url, timeout_seconds, false).await
+}
+
+async fn fetch_page_with_tls(
+    client: &reqwest::Client,
+    raw_url: &str,
+    timeout_seconds: u64,
+    skip_tls_verification: bool,
+) -> Result<ProviderPage, WebExtractError> {
     let normalized = normalize_url(raw_url)?;
+    let insecure_client;
+    let client = if skip_tls_verification {
+        insecure_client = reqwest::Client::builder()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
+        &insecure_client
+    } else {
+        client
+    };
     let response = client
         .get(&normalized)
         .header(USER_AGENT, DEFAULT_USER_AGENT)
@@ -287,6 +325,7 @@ async fn render_page(
             "timeout": request.timeout_seconds * 1000,
             "wait": request.wait_for_ms,
             "blockMedia": true,
+            "skipTlsVerification": request.skip_tls_verification,
             "geolocation": request.location,
             "actions": if request.formats.iter().any(|format| format.eq_ignore_ascii_case("screenshot")) {
                 json!([{ "type": "screenshot", "fullPage": true }])
