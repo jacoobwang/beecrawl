@@ -2,8 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::time::Instant;
 
+use ego_tree::NodeRef;
 use reqwest::header::{ACCEPT, USER_AGENT};
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Node, Selector};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -331,13 +332,7 @@ pub fn extract_markdown(html: &str, base_url: &str) -> (String, HashMap<String, 
     let language = select_attr(&document, "html", "lang");
     let root_html = select_root_html(&document).unwrap_or_else(|| html.to_string());
     let root_doc = Html::parse_fragment(&root_html);
-    let mut markdown = String::new();
-    append_markdown_from_selector(&root_doc, "h1", "# ", &mut markdown);
-    append_markdown_from_selector(&root_doc, "h2", "## ", &mut markdown);
-    append_markdown_from_selector(&root_doc, "h3", "### ", &mut markdown);
-    append_markdown_from_selector(&root_doc, "p", "", &mut markdown);
-    append_markdown_from_selector(&root_doc, "li", "- ", &mut markdown);
-    append_links(&root_doc, base_url, &mut markdown);
+    let mut markdown = render_markdown(root_doc.root_element(), base_url);
     if markdown.trim().is_empty() {
         markdown = collect_text(&root_doc.root_element().text().collect::<Vec<_>>().join(" "));
     }
@@ -605,39 +600,237 @@ fn select_root_html(document: &Html) -> Option<String> {
         .or_else(|| Some(document.html()))
 }
 
-fn append_markdown_from_selector(document: &Html, selector: &str, prefix: &str, out: &mut String) {
-    let selector = Selector::parse(selector).unwrap();
-    for node in document.select(&selector) {
-        let text = collect_text(&node.text().collect::<Vec<_>>().join(" "));
-        if !text.is_empty() {
-            out.push_str(prefix);
-            out.push_str(&text);
-            out.push_str("\n\n");
+fn render_markdown(root: ElementRef<'_>, base_url: &str) -> String {
+    let mut out = String::new();
+    for child in root.children() {
+        render_markdown_node(child, base_url, &mut out, false);
+    }
+    collapse_blank_lines(&out)
+}
+
+fn render_markdown_node(
+    node: NodeRef<'_, Node>,
+    base_url: &str,
+    out: &mut String,
+    preserve_whitespace: bool,
+) {
+    if let Some(text) = node.value().as_text() {
+        if preserve_whitespace {
+            out.push_str(text);
+        } else {
+            push_inline_text(out, text);
+        }
+        return;
+    }
+    let Some(element) = ElementRef::wrap(node) else {
+        for child in node.children() {
+            render_markdown_node(child, base_url, out, preserve_whitespace);
+        }
+        return;
+    };
+    let name = element.value().name();
+    match name {
+        "script" | "style" | "noscript" | "template" | "svg" => {}
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            let level = name[1..].parse::<usize>().unwrap_or(1);
+            let content = render_children(element, base_url, false);
+            push_block(out, &format!("{} {}", "#".repeat(level), content.trim()));
+        }
+        "p" | "div" | "section" | "article" | "main" | "header" | "footer" | "aside" => {
+            let content = render_children(element, base_url, false);
+            push_block(out, content.trim());
+        }
+        "br" => out.push('\n'),
+        "hr" => push_block(out, "---"),
+        "strong" | "b" => {
+            let content = render_children(element, base_url, false);
+            if !content.trim().is_empty() {
+                out.push_str("**");
+                out.push_str(content.trim());
+                out.push_str("**");
+            }
+        }
+        "em" | "i" => {
+            let content = render_children(element, base_url, false);
+            if !content.trim().is_empty() {
+                out.push('*');
+                out.push_str(content.trim());
+                out.push('*');
+            }
+        }
+        "code"
+            if node
+                .parent()
+                .and_then(ElementRef::wrap)
+                .is_some_and(|p| p.value().name() == "pre") =>
+        {
+            for child in node.children() {
+                render_markdown_node(child, base_url, out, true);
+            }
+        }
+        "code" => {
+            let content = render_children(element, base_url, true);
+            if !content.is_empty() {
+                out.push('`');
+                out.push_str(content.trim());
+                out.push('`');
+            }
+        }
+        "pre" => {
+            let content = element.text().collect::<String>();
+            if !content.trim().is_empty() {
+                push_block(out, &format!("```\n{}\n```", content.trim_matches('\n')));
+            }
+        }
+        "a" => render_link(element, base_url, out),
+        "img" => {
+            let alt = element.attr("alt").unwrap_or("").trim();
+            if let Some(src) = resolve_link(base_url, element.attr("src").unwrap_or("")) {
+                out.push_str(&format!("![{alt}]({src})"));
+            }
+        }
+        "ul" => render_list(element, base_url, out, false),
+        "ol" => render_list(element, base_url, out, true),
+        "li" => {
+            let content = render_children(element, base_url, false);
+            push_block(out, &format!("- {}", content.trim()));
+        }
+        "blockquote" => {
+            let content = render_children(element, base_url, false);
+            let quoted = content
+                .trim()
+                .lines()
+                .map(|line| format!("> {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            push_block(out, &quoted);
+        }
+        "table" => render_table(element, out),
+        _ => {
+            for child in node.children() {
+                render_markdown_node(child, base_url, out, preserve_whitespace);
+            }
         }
     }
 }
 
-fn append_links(document: &Html, base_url: &str, out: &mut String) {
-    let selector = Selector::parse("a").unwrap();
-    let base = Url::parse(base_url).ok();
-    for node in document.select(&selector) {
-        let text = collect_text(&node.text().collect::<Vec<_>>().join(" "));
-        if text.is_empty() {
-            continue;
-        }
-        let Some(href) = node.value().attr("href") else {
-            continue;
-        };
-        if href.starts_with('#') || href.starts_with("javascript:") {
-            continue;
-        }
-        let url = base
-            .as_ref()
-            .and_then(|base| base.join(href).ok())
-            .map(|url| url.to_string())
-            .unwrap_or_else(|| href.to_string());
-        out.push_str(&format!("[{text}]({url})\n\n"));
+fn render_children(element: ElementRef<'_>, base_url: &str, preserve_whitespace: bool) -> String {
+    let mut out = String::new();
+    for child in element.children() {
+        render_markdown_node(child, base_url, &mut out, preserve_whitespace);
     }
+    out
+}
+
+fn render_link(element: ElementRef<'_>, base_url: &str, out: &mut String) {
+    let content = render_children(element, base_url, false);
+    let label = content.trim();
+    let Some(href) = element
+        .attr("href")
+        .and_then(|href| resolve_link(base_url, href))
+    else {
+        out.push_str(label);
+        return;
+    };
+    if label.is_empty() {
+        out.push_str(&href);
+    } else {
+        out.push_str(&format!("[{label}]({href})"));
+    }
+}
+
+fn resolve_link(base_url: &str, raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw.starts_with('#') || raw.starts_with("javascript:") {
+        return None;
+    }
+    let base = Url::parse(base_url).ok()?;
+    let url = base.join(raw).ok()?;
+    matches!(url.scheme(), "http" | "https").then(|| url.to_string())
+}
+
+fn render_list(element: ElementRef<'_>, base_url: &str, out: &mut String, ordered: bool) {
+    let mut lines = Vec::new();
+    for (index, item) in element
+        .child_elements()
+        .filter(|child| child.value().name() == "li")
+        .enumerate()
+    {
+        let content = render_children(item, base_url, false);
+        let prefix = if ordered {
+            format!("{}. ", index + 1)
+        } else {
+            "- ".to_string()
+        };
+        let mut content_lines = content.trim().lines();
+        if let Some(first) = content_lines.next() {
+            lines.push(format!("{prefix}{first}"));
+        }
+        for line in content_lines {
+            if !line.trim().is_empty() {
+                lines.push(format!("  {line}"));
+            }
+        }
+    }
+    push_block(out, &lines.join("\n"));
+}
+
+fn render_table(element: ElementRef<'_>, out: &mut String) {
+    let row_selector = Selector::parse("tr").expect("valid row selector");
+    let mut rows = Vec::new();
+    for row in element.select(&row_selector) {
+        let cells = row
+            .child_elements()
+            .filter(|cell| matches!(cell.value().name(), "th" | "td"))
+            .map(|cell| collect_text(&cell.text().collect::<Vec<_>>().join(" ")))
+            .collect::<Vec<_>>();
+        if !cells.is_empty() {
+            rows.push(cells);
+        }
+    }
+    let Some(width) = rows.first().map(Vec::len) else {
+        return;
+    };
+    let mut lines = Vec::new();
+    for (index, mut row) in rows.into_iter().enumerate() {
+        row.resize(width, String::new());
+        lines.push(format!("| {} |", row.join(" | ")));
+        if index == 0 {
+            lines.push(format!("| {} |", vec!["---"; width].join(" | ")));
+        }
+    }
+    push_block(out, &lines.join("\n"));
+}
+
+fn push_inline_text(out: &mut String, text: &str) {
+    let has_leading_whitespace = text.chars().next().is_some_and(char::is_whitespace);
+    let has_trailing_whitespace = text.chars().next_back().is_some_and(char::is_whitespace);
+    let normalized = collect_text(text);
+    if normalized.is_empty() {
+        return;
+    }
+    if has_leading_whitespace && out.chars().last().is_some_and(|last| !last.is_whitespace()) {
+        out.push(' ');
+    }
+    out.push_str(&normalized);
+    if has_trailing_whitespace && !out.ends_with(char::is_whitespace) {
+        out.push(' ');
+    }
+}
+
+fn push_block(out: &mut String, content: &str) {
+    let content = content.trim();
+    if content.is_empty() {
+        return;
+    }
+    if !out.trim_end().is_empty() {
+        while out.ends_with(char::is_whitespace) {
+            out.pop();
+        }
+        out.push_str("\n\n");
+    }
+    out.push_str(content);
+    out.push_str("\n\n");
 }
 
 fn select_first_text(document: &Html, selector: &str) -> Option<String> {
@@ -694,6 +887,39 @@ mod tests {
         assert!(markdown.contains("# About"));
         assert!(markdown.contains("[Link](https://example.com/x)"));
         assert_eq!(metadata["language"], Some("en".to_string()));
+    }
+
+    #[test]
+    fn markdown_preserves_document_order_and_block_structure() {
+        let html = include_str!("../tests/fixtures/article.html");
+        let (markdown, _) = extract_markdown(html, "https://example.com/articles/ordered");
+
+        let heading = markdown.find("# First heading").unwrap();
+        let paragraph = markdown.find("Opening paragraph").unwrap();
+        let second_heading = markdown.find("## Second heading").unwrap();
+        let quote = markdown.find("> A quoted conclusion.").unwrap();
+        let code = markdown.find("```\nconst answer = 42;").unwrap();
+        assert!(heading < paragraph);
+        assert!(paragraph < second_heading);
+        assert!(second_heading < quote);
+        assert!(quote < code);
+        assert!(markdown.contains(
+            "Opening paragraph with **important text** and [a guide](https://example.com/guide)."
+        ));
+        assert!(markdown.contains("**important text**"));
+        assert!(markdown.contains("[a guide](https://example.com/guide)"));
+    }
+
+    #[test]
+    fn markdown_renders_lists_tables_and_images() {
+        let html = include_str!("../tests/fixtures/catalog.html");
+        let (markdown, _) = extract_markdown(html, "https://example.com/catalog");
+
+        assert!(markdown.contains("- Thermal pad\n- Thermal paste"));
+        assert!(markdown.contains("| Product | Conductivity |"));
+        assert!(markdown.contains("| --- | --- |"));
+        assert!(markdown.contains("| TP-10 | 10 W/mK |"));
+        assert!(markdown.contains("![TP-10 package](https://example.com/images/tp-10.png)"));
     }
 
     #[test]

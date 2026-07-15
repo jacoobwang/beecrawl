@@ -10,6 +10,7 @@ anyhow = "1.0"
 axum = { version = "0.7", features = ["multipart"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+ego-tree = "0.10"
 html-escape = "0.2"
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
 scraper = "0.22"
