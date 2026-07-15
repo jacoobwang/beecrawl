@@ -175,6 +175,11 @@ POST   /v2/search
 
 Set the Firecrawl SDK `api_url` to the BeeCrawl base URL. These routes accept
 Firecrawl camelCase request fields and return its `success` response envelope.
+Unsupported fields, format-specific options, and behavior-changing option
+values return JSON `400` responses instead of being silently ignored. The
+default scrape options emitted by `firecrawl-py` 4.x are accepted, including
+working `skipTlsVerification` support. Run `make firecrawl-contract` against a
+local API to verify the adapter through the official Python SDK.
 The v2 extract adapter supports multiple URLs and JSON Schema objects. Search
 supports Web results with optional scraping; requested news and image groups
 are returned empty until providers for those source types are added. Batch

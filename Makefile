@@ -4,7 +4,7 @@ PORT ?= 8000
 BEE_ENGINE_PORT ?= 8020
 UV ?= uv
 
-.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install test lint rust-test rust-lint python-test python-lint
+.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install firecrawl-contract test lint rust-test rust-lint python-test python-lint
 
 install:
 	$(UV) sync --extra dev --extra browser
@@ -35,6 +35,9 @@ bee-engine:
 
 playwright-install:
 	$(UV) run --extra browser playwright install chromium
+
+firecrawl-contract:
+	$(UV) run --with firecrawl-py python scripts/firecrawl_v2_contract.py --api-url http://$(HOST):$(PORT)
 
 python-test:
 	$(UV) run --extra dev pytest -q

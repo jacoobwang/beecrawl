@@ -21,6 +21,22 @@ POST   /v2/search
 Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
 routes accept Firecrawl camelCase fields and return a `success` envelope.
 
+The scrape adapter accepts `markdown`, `html`, `rawHtml`, `links`, and
+`screenshot` formats. Format-specific options and unsupported formats such as
+`json` are rejected with JSON `400` responses instead of being silently
+ignored. The defaults emitted by `firecrawl-py` 4.x are accepted when they
+match BeeCrawl's behavior. Unsupported behavior-changing values, including
+`mobile=true` and `fastMode=true`, are also rejected explicitly.
+`skipTlsVerification` is supported for direct scrape, search scraping, and
+crawl jobs.
+
+To smoke-test the adapter through the official Python SDK while a local API is
+running:
+
+```bash
+make firecrawl-contract
+```
+
 `POST /v2/parse` is synchronous multipart upload for local or non-public PDFs.
 Send `file=@report.pdf` and, optionally, an `options` JSON part. Markdown is
 the supported output; `parsers` accepts `{ "type": "pdf", "mode": "fast" |
@@ -43,4 +59,5 @@ JSON instead:
 URL are valid. The decoded PDF limit remains 50 MB.
 
 The compatibility layer does not currently implement batch scrape, usage
-accounts, or Firecrawl's news and image search providers.
+accounts, or Firecrawl's news and image search providers. Request fields not
+implemented by an adapter are rejected rather than accepted as no-ops.
