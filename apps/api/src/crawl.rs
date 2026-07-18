@@ -92,6 +92,11 @@ impl CrawlStore {
                 "limit must be greater than zero".to_string(),
             ));
         }
+        if request.max_concurrency == 0 {
+            return Err(CrawlStoreError::InvalidRequest(
+                "maxConcurrency must be greater than zero".to_string(),
+            ));
+        }
         let url = web_extract::normalize_url(&request.url)
             .map_err(|error| CrawlStoreError::InvalidRequest(error.to_string()))?;
         validate_path_patterns(&request.include_paths, "includePaths")?;
@@ -100,7 +105,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now() + make_interval(days => $20))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now() + make_interval(days => $22))",
         )
         .bind(id)
         .bind(&url)
@@ -113,6 +118,8 @@ impl CrawlStore {
         .bind(request.allow_external_links)
         .bind(request.crawl_entire_domain)
         .bind(&request.sitemap)
+        .bind(request.delay_ms as i64)
+        .bind(request.max_concurrency as i32)
         .bind(request.ignore_query_parameters)
         .bind(request.ignore_robots_txt)
         .bind(&request.robots_user_agent)
@@ -160,16 +167,22 @@ impl CrawlStore {
                 "batch scrape supports at most 1000 URLs".to_string(),
             ));
         }
+        if request.max_concurrency == 0 {
+            return Err(CrawlStoreError::InvalidRequest(
+                "maxConcurrency must be greater than zero".to_string(),
+            ));
+        }
 
         let id = Uuid::new_v4();
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, now() + make_interval(days => $9))",
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, now() + make_interval(days => $10))",
         )
         .bind(id)
         .bind(&urls[0])
         .bind(urls.len() as i64)
+        .bind(request.max_concurrency as i32)
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
@@ -301,7 +314,7 @@ impl CrawlStore {
     }
 
     pub async fn active(&self) -> Result<ActiveCrawlsResponse, CrawlStoreError> {
-        let rows = sqlx::query("SELECT id, url, status, job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters FROM crawl_jobs WHERE job_type = 'crawl' AND status IN ('queued', 'scraping') AND cancel_requested = false ORDER BY created_at ASC")
+        let rows = sqlx::query("SELECT id, url, status, job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, delay_ms, max_concurrency FROM crawl_jobs WHERE job_type = 'crawl' AND status IN ('queued', 'scraping') AND cancel_requested = false ORDER BY created_at ASC")
             .fetch_all(self.pool()?)
             .await?;
         let crawls = rows
@@ -319,6 +332,8 @@ impl CrawlStore {
                         "maxDiscoveryDepth": row.try_get::<i32, _>("max_depth")?,
                         "allowSubdomains": row.try_get::<bool, _>("include_subdomains")?,
                         "ignoreQueryParameters": row.try_get::<bool, _>("ignore_query_parameters")?,
+                        "delay": row.try_get::<i64, _>("delay_ms")? as f64 / 1000.0,
+                        "maxConcurrency": row.try_get::<i32, _>("max_concurrency")?,
                     }),
                 })
             })
@@ -346,7 +361,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let lease_token = Uuid::new_v4();
         let row = sqlx::query(
-            "WITH candidate AS (SELECT tasks.id FROM crawl_tasks AS tasks JOIN crawl_jobs AS jobs ON jobs.id = tasks.crawl_id WHERE jobs.cancel_requested = false AND jobs.status IN ('queued', 'scraping') AND ((tasks.status = 'queued' AND tasks.next_attempt_at <= now()) OR (tasks.status = 'active' AND tasks.lease_expires_at < now())) ORDER BY tasks.next_attempt_at, tasks.created_at FOR UPDATE SKIP LOCKED LIMIT 1) UPDATE crawl_tasks AS tasks SET status = 'active', attempts = tasks.attempts + 1, lease_token = $1, lease_expires_at = now() + make_interval(secs => 90), worker_id = $2, started_at = COALESCE(tasks.started_at, now()) FROM candidate WHERE tasks.id = candidate.id RETURNING tasks.id, tasks.crawl_id, tasks.url, tasks.depth, tasks.attempts, tasks.lease_token",
+            "WITH candidate AS (SELECT tasks.id, tasks.crawl_id FROM crawl_tasks AS tasks JOIN crawl_jobs AS jobs ON jobs.id = tasks.crawl_id WHERE jobs.cancel_requested = false AND jobs.status IN ('queued', 'scraping') AND ((tasks.status = 'queued' AND tasks.next_attempt_at <= now()) OR (tasks.status = 'active' AND tasks.lease_expires_at < now())) AND (jobs.last_task_started_at IS NULL OR jobs.last_task_started_at + make_interval(secs => jobs.delay_ms::double precision / 1000.0) <= now()) AND (SELECT COUNT(*) FROM crawl_tasks AS active WHERE active.crawl_id = jobs.id AND active.status = 'active' AND active.lease_expires_at >= now()) < jobs.max_concurrency ORDER BY tasks.next_attempt_at, tasks.created_at FOR UPDATE OF jobs, tasks SKIP LOCKED LIMIT 1), activated AS (UPDATE crawl_tasks AS tasks SET status = 'active', attempts = tasks.attempts + 1, lease_token = $1, lease_expires_at = now() + make_interval(secs => 90), worker_id = $2, started_at = COALESCE(tasks.started_at, now()) FROM candidate WHERE tasks.id = candidate.id RETURNING tasks.id, tasks.crawl_id, tasks.url, tasks.depth, tasks.attempts, tasks.lease_token), touched AS (UPDATE crawl_jobs AS jobs SET status = 'scraping', started_at = COALESCE(started_at, now()), last_task_started_at = now() FROM activated WHERE jobs.id = activated.crawl_id RETURNING jobs.id) SELECT activated.* FROM activated JOIN touched ON touched.id = activated.crawl_id",
         )
         .bind(lease_token)
         .bind(worker_id)
@@ -354,10 +369,6 @@ impl CrawlStore {
         .await?;
         let Some(row) = row else { return Ok(None) };
         let crawl_id: Uuid = row.try_get("crawl_id")?;
-        sqlx::query("UPDATE crawl_jobs SET status = 'scraping', started_at = COALESCE(started_at, now()) WHERE id = $1 AND status = 'queued'")
-            .bind(crawl_id)
-            .execute(pool)
-            .await?;
         Ok(Some(ClaimedTask {
             id: row.try_get("id")?,
             crawl_id,
@@ -752,6 +763,8 @@ mod tests {
             allow_external_links: false,
             crawl_entire_domain: false,
             sitemap: "include".to_string(),
+            delay_ms: 0,
+            max_concurrency: 10,
             ignore_query_parameters: true,
             ignore_robots_txt: false,
             robots_user_agent: None,
@@ -859,6 +872,7 @@ mod tests {
                     "https://example.com".to_string(),
                     "https://example.com/docs".to_string(),
                 ],
+                max_concurrency: 3,
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),
@@ -886,6 +900,69 @@ mod tests {
             "batch_scrape"
         );
         assert_eq!(row.try_get::<i32, _>("max_depth").unwrap(), 0);
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_enforces_per_job_concurrency_when_claiming() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let batch = store
+            .enqueue_batch(BatchScrapeRequest {
+                urls: vec![
+                    "https://example.com/one".to_string(),
+                    "https://example.com/two".to_string(),
+                ],
+                max_concurrency: 1,
+                timeout_seconds: 5,
+                wait_for_ms: 0,
+                use_browser: "never".to_string(),
+                skip_tls_verification: false,
+                max_retries: 0,
+            })
+            .await
+            .unwrap();
+        let first = store.claim_task("worker-one").await.unwrap().unwrap();
+        assert!(store.claim_task("worker-two").await.unwrap().is_none());
+        let first_url = first.url.clone();
+        store
+            .finish_success(&first, page(&first_url), vec![])
+            .await
+            .unwrap();
+        assert!(store.claim_task("worker-two").await.unwrap().is_some());
+        store.cancel(&batch.id).await.unwrap();
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_enforces_crawl_delay_when_claiming() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let mut crawl_request = request(0);
+        crawl_request.delay_ms = 60_000;
+        crawl_request.max_depth = 1;
+        let crawl = store.enqueue(crawl_request).await.unwrap();
+        let first = store.claim_task("worker-one").await.unwrap().unwrap();
+        store
+            .finish_success(
+                &first,
+                page("https://example.com"),
+                vec!["https://example.com/next".to_string()],
+            )
+            .await
+            .unwrap();
+        assert!(store.claim_task("worker-two").await.unwrap().is_none());
+        sqlx::query(
+            "UPDATE crawl_jobs SET last_task_started_at = now() - interval '61 seconds' WHERE id = $1",
+        )
+        .bind(Uuid::parse_str(&crawl.id).unwrap())
+        .execute(store.pool().unwrap())
+        .await
+        .unwrap();
+        assert!(store.claim_task("worker-two").await.unwrap().is_some());
+        store.cancel(&crawl.id).await.unwrap();
         reset(&store).await;
     }
 

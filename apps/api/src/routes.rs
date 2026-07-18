@@ -474,6 +474,8 @@ async fn firecrawl_v2_crawl(
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
     validate_firecrawl_crawl_defaults(&request)?;
+    let delay_ms = firecrawl_delay_ms(request.delay)?;
+    let max_concurrency = firecrawl_max_concurrency(request.max_concurrency)?;
     let scrape = request.scrape_options.unwrap_or_default();
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -506,6 +508,8 @@ async fn firecrawl_v2_crawl(
             allow_external_links: request.allow_external_links.unwrap_or(false),
             crawl_entire_domain: request.crawl_entire_domain.unwrap_or(false),
             sitemap: request.sitemap,
+            delay_ms,
+            max_concurrency,
             ignore_query_parameters: request.ignore_query_parameters,
             ignore_robots_txt: request.ignore_robots_txt.unwrap_or(false),
             robots_user_agent: request.robots_user_agent,
@@ -527,6 +531,7 @@ async fn firecrawl_v2_batch_scrape(
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
+    let max_concurrency = firecrawl_max_concurrency(request.max_concurrency)?;
     let scrape = request.scrape_options;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -550,6 +555,7 @@ async fn firecrawl_v2_batch_scrape(
         .crawls
         .enqueue_batch(BatchScrapeRequest {
             urls: request.urls,
+            max_concurrency,
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
@@ -879,6 +885,31 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
             "BeeCrawl does not support these Firecrawl crawl option values: {}",
             unsupported.join(", ")
         )))
+    }
+}
+
+fn firecrawl_delay_ms(delay: Option<f64>) -> Result<u64, ApiError> {
+    match delay {
+        None => Ok(0),
+        Some(delay) if delay.is_finite() && delay > 0.0 && delay <= 60.0 => {
+            Ok((delay * 1_000.0).ceil() as u64)
+        }
+        Some(_) => Err(ApiError::InvalidRequest(
+            "delay must be greater than 0 and no more than 60 seconds".to_string(),
+        )),
+    }
+}
+
+fn firecrawl_max_concurrency(value: Option<usize>) -> Result<usize, ApiError> {
+    match value {
+        Some(0) => Err(ApiError::InvalidRequest(
+            "maxConcurrency must be greater than zero".to_string(),
+        )),
+        Some(value) if value <= i32::MAX as usize => Ok(value),
+        Some(_) => Err(ApiError::InvalidRequest(
+            "maxConcurrency is too large".to_string(),
+        )),
+        None => Ok(10),
     }
 }
 
@@ -1604,7 +1635,8 @@ mod tests {
             "urls": ["https://example.com", "https://example.com/docs"],
             "formats": ["markdown"],
             "waitFor": 250,
-            "timeout": 45000
+            "timeout": 45000,
+            "maxConcurrency": 4
         }))
         .unwrap();
         assert_eq!(request.urls.len(), 2);
@@ -1614,6 +1646,7 @@ mod tests {
         );
         assert_eq!(request.scrape_options.wait_for_ms, 250);
         assert_eq!(request.scrape_options.timeout, 45_000);
+        assert_eq!(request.max_concurrency, Some(4));
     }
 
     #[test]
@@ -1631,6 +1664,14 @@ mod tests {
         assert_eq!(crawl.sitemap, "include");
         assert_eq!(crawl.allow_external_links, None);
         assert_eq!(crawl.crawl_entire_domain, None);
+        assert_eq!(crawl.delay, None);
+        assert_eq!(crawl.max_concurrency, None);
+
+        assert_eq!(firecrawl_delay_ms(Some(0.25)).unwrap(), 250);
+        assert_eq!(firecrawl_max_concurrency(Some(3)).unwrap(), 3);
+        assert!(firecrawl_delay_ms(Some(0.0)).is_err());
+        assert!(firecrawl_delay_ms(Some(60.1)).is_err());
+        assert!(firecrawl_max_concurrency(Some(0)).is_err());
 
         let map: FirecrawlV2MapRequest = serde_json::from_value(json!({
             "url": "https://example.com"

@@ -65,6 +65,9 @@ starting page and discovered pages.
 The crawl queue persists `sitemap=skip|include|only`. By default discovery stays
 under the starting URL's path and host; `crawlEntireDomain`, `allowSubdomains`,
 and `allowExternalLinks` expand that scope in that order.
+`delay` spaces task starts by the requested number of seconds (up to 60), and
+`maxConcurrency` caps active task leases per crawl or batch job. Both limits are
+enforced atomically by the shared PostgreSQL queue across worker processes.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

@@ -1,0 +1,5 @@
+ALTER TABLE crawl_jobs
+  ADD COLUMN IF NOT EXISTS delay_ms BIGINT NOT NULL DEFAULT 0 CHECK (delay_ms >= 0),
+  ADD COLUMN IF NOT EXISTS max_concurrency INTEGER NOT NULL DEFAULT 10
+    CHECK (max_concurrency > 0),
+  ADD COLUMN IF NOT EXISTS last_task_started_at TIMESTAMPTZ;

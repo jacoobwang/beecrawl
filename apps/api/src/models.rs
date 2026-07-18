@@ -182,6 +182,9 @@ pub struct FirecrawlV2CrawlRequest {
     pub zero_data_retention: Option<bool>,
     #[serde(rename = "ignoreQueryParameters", default)]
     pub ignore_query_parameters: bool,
+    pub delay: Option<f64>,
+    #[serde(rename = "maxConcurrency")]
+    pub max_concurrency: Option<usize>,
     #[serde(rename = "scrapeOptions", default)]
     pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
 }
@@ -192,6 +195,8 @@ pub struct FirecrawlV2BatchScrapeRequest {
     pub urls: Vec<String>,
     #[serde(default)]
     pub origin: Option<String>,
+    #[serde(rename = "maxConcurrency")]
+    pub max_concurrency: Option<usize>,
     #[serde(flatten)]
     pub scrape_options: FirecrawlV2ScrapeOptions,
 }
@@ -422,6 +427,10 @@ pub struct CrawlRequest {
     pub crawl_entire_domain: bool,
     #[serde(default = "default_sitemap")]
     pub sitemap: String,
+    #[serde(default)]
+    pub delay_ms: u64,
+    #[serde(rename = "maxConcurrency", default = "default_job_max_concurrency")]
+    pub max_concurrency: usize,
     #[serde(
         rename = "ignoreQueryParameters",
         default = "default_ignore_query_parameters"
@@ -446,6 +455,8 @@ pub struct CrawlRequest {
 #[derive(Debug, Deserialize, Clone)]
 pub struct BatchScrapeRequest {
     pub urls: Vec<String>,
+    #[serde(rename = "maxConcurrency", default = "default_job_max_concurrency")]
+    pub max_concurrency: usize,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
     #[serde(default)]
@@ -790,6 +801,10 @@ fn default_firecrawl_crawl_max_depth() -> usize {
 
 fn default_crawl_max_retries() -> usize {
     2
+}
+
+fn default_job_max_concurrency() -> usize {
+    10
 }
 
 fn default_crawl_status_limit() -> usize {

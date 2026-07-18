@@ -185,18 +185,7 @@ pub async fn map_site(
     } else {
         request.sitemap.as_str()
     };
-    let (links, provider) = discover_links(
-        client,
-        &normalized,
-        request.search.as_deref(),
-        request.limit,
-        request.include_subdomains,
-        request.allow_external_links,
-        request.crawl_entire_domain,
-        sitemap_mode,
-        request.ignore_query_parameters,
-    )
-    .await?;
+    let (links, provider) = discover_links(client, &normalized, &request, sitemap_mode).await?;
     Ok(WebExtractMapResponse {
         request_id: request_id("webext"),
         url: normalized,
@@ -706,25 +695,20 @@ fn page_to_markdown(page: ProviderPage) -> (ProviderPage, String, HashMap<String
 async fn discover_links(
     client: &reqwest::Client,
     normalized: &str,
-    search: Option<&str>,
-    limit: usize,
-    include_subdomains: bool,
-    allow_external_links: bool,
-    crawl_entire_domain: bool,
+    request: &WebExtractMapRequest,
     sitemap: &str,
-    ignore_query_parameters: bool,
 ) -> Result<(Vec<String>, String), WebExtractError> {
     let mut links = Vec::new();
     let mut providers = Vec::new();
     if matches!(sitemap, "include" | "only") {
-        let sitemap_links = discover_sitemap_links(client, normalized, limit).await;
+        let sitemap_links = discover_sitemap_links(client, normalized, request.limit).await;
         if !sitemap_links.is_empty() {
             links.extend(sitemap_links);
             providers.push("sitemap");
         }
     }
     if sitemap != "only" {
-        let html_links = discover_html_links(client, normalized, limit).await;
+        let html_links = discover_html_links(client, normalized, request.limit).await;
         if !html_links.is_empty() {
             links.extend(html_links);
             providers.push("html_links");
@@ -733,11 +717,11 @@ async fn discover_links(
     let filtered = filter_links(
         normalized,
         links,
-        search,
-        include_subdomains,
-        allow_external_links,
-        crawl_entire_domain,
-        ignore_query_parameters,
+        request.search.as_deref(),
+        request.include_subdomains,
+        request.allow_external_links,
+        request.crawl_entire_domain,
+        request.ignore_query_parameters,
     );
     let provider = if providers.is_empty() {
         "html_links".to_string()
@@ -751,7 +735,7 @@ async fn discover_links(
             filtered
         })[..]
             .iter()
-            .take(limit)
+            .take(request.limit)
             .cloned()
             .collect(),
         provider,

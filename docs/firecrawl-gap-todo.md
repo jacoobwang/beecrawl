@@ -39,7 +39,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Respect robots.txt by default and support `robotsUserAgent`.
 - [x] Add `includePaths`, `excludePaths`, and full-URL regex matching.
 - [x] Implement all sitemap modes and external/subdomain/domain policies.
-- [ ] Add crawl delay and per-job maximum concurrency.
+- [x] Add crawl delay and per-job maximum concurrency.
 - [ ] Add similar-URL deduplication and query-parameter policy parity.
 - [ ] Add idempotency keys.
 - [ ] Add signed webhooks for crawl and batch lifecycle events.
