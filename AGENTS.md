@@ -8,3 +8,7 @@ The directory you have access to is a monorepo:
 - `apps/bee-engine` has the Python browser rendering service.
 - `apps/sdk/python` is the Python HTTP SDK.
 - `apps/sdk/rust` is the Rust HTTP SDK.
+
+## Workflow
+
+- After completing and verifying a task, automatically commit the changes for that task.
