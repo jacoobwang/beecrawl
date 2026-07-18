@@ -29,7 +29,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Add `json` format using the existing OpenAI-compatible extraction layer.
 - [x] Add `images` and `summary` formats.
 - [ ] Add screenshot `fullPage`, `quality`, and viewport options.
-- [ ] Add caller-supplied HTTP headers.
+- [x] Add caller-supplied HTTP headers.
 - [ ] Add `includeTags`, `excludeTags`, `onlyMainContent`, and clean-content control.
 - [ ] Add structured `attributes`, `question`, and `highlights` formats.
 - [x] Add deterministic JSON extraction.

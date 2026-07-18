@@ -86,6 +86,7 @@ pub async fn search(
                     wait_for_ms: options.wait_for_ms,
                     use_browser: options.use_browser.clone(),
                     skip_tls_verification: options.skip_tls_verification,
+                    headers: options.headers.clone(),
                 },
             )
             .await

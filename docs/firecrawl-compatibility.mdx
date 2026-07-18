@@ -38,7 +38,8 @@ ignored. The defaults emitted by `firecrawl-py` 4.x are accepted when they
 match BeeCrawl's behavior. Unsupported behavior-changing values, including
 `mobile=true` and `fastMode=true`, are also rejected explicitly.
 `skipTlsVerification` is supported for direct scrape, search scraping, and
-crawl jobs.
+crawl jobs. Caller-supplied `headers` are forwarded by direct scrape and search
+scraping and are included in the cache key.
 
 Map returns the current link-object shape and uses Firecrawl's current defaults
 (`limit=5000`, `includeSubdomains=true`). Crawl defaults to `limit=10000`, does

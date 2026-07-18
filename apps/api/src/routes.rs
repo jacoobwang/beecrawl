@@ -197,6 +197,7 @@ async fn run_extract(
             wait_for_ms: request.wait_for_ms,
             use_browser: request.use_browser.clone(),
             skip_tls_verification: false,
+            headers: HashMap::new(),
         },
     )
     .await?;
@@ -288,6 +289,7 @@ async fn firecrawl_v2_scrape(
             wait_for_ms: request.wait_for_ms,
             use_browser: "auto".to_string(),
             skip_tls_verification: request.skip_tls_verification.unwrap_or(false),
+            headers: request.headers,
         },
     )
     .await?;
@@ -637,6 +639,7 @@ async fn firecrawl_v2_extract(
                     wait_for_ms: 0,
                     use_browser: "auto".to_string(),
                     skip_tls_verification: false,
+                    headers: HashMap::new(),
                 },
             )
             .await?,
@@ -758,6 +761,7 @@ async fn firecrawl_v2_search(
                 wait_for_ms: options.wait_for_ms,
                 use_browser: "auto".to_string(),
                 skip_tls_verification: options.skip_tls_verification.unwrap_or(false),
+                headers: options.headers,
             }),
         },
     )

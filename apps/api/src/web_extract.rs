@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use ego_tree::NodeRef;
-use reqwest::header::{ACCEPT, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, USER_AGENT};
 use scraper::{ElementRef, Html, Node, Selector};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -156,6 +156,7 @@ fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String 
         "wait_for_ms": request.wait_for_ms,
         "location": &request.location,
         "skip_tls_verification": request.skip_tls_verification,
+        "headers": &request.headers,
     }))
     .expect("cache key payload serializes");
     format!("scrape:{:x}", Sha256::digest(payload))
@@ -217,6 +218,7 @@ async fn scrape_page(
                 &request.url,
                 request.timeout_seconds,
                 request.skip_tls_verification,
+                &request.headers,
             )
             .await?;
             Ok(page_to_markdown(page))
@@ -232,6 +234,7 @@ async fn scrape_page(
                         &request.url,
                         request.timeout_seconds,
                         request.skip_tls_verification,
+                        &request.headers,
                     )
                     .await?;
                     Ok(page_to_markdown(page))
@@ -243,6 +246,7 @@ async fn scrape_page(
                     &request.url,
                     request.timeout_seconds,
                     request.skip_tls_verification,
+                    &request.headers,
                 )
                 .await?;
                 Ok(page_to_markdown(page))
@@ -256,7 +260,7 @@ pub async fn fetch_page(
     raw_url: &str,
     timeout_seconds: u64,
 ) -> Result<ProviderPage, WebExtractError> {
-    fetch_page_with_tls(client, raw_url, timeout_seconds, false).await
+    fetch_page_with_tls(client, raw_url, timeout_seconds, false, &HashMap::new()).await
 }
 
 async fn fetch_page_with_tls(
@@ -264,6 +268,7 @@ async fn fetch_page_with_tls(
     raw_url: &str,
     timeout_seconds: u64,
     skip_tls_verification: bool,
+    headers: &HashMap<String, String>,
 ) -> Result<ProviderPage, WebExtractError> {
     let normalized = normalize_url(raw_url)?;
     let insecure_client;
@@ -280,6 +285,7 @@ async fn fetch_page_with_tls(
         .get(&normalized)
         .header(USER_AGENT, DEFAULT_USER_AGENT)
         .header(ACCEPT, "text/html,application/xhtml+xml")
+        .headers(request_headers(headers)?)
         .timeout(std::time::Duration::from_secs(timeout_seconds))
         .send()
         .await
@@ -326,6 +332,7 @@ async fn render_page(
             "wait": request.wait_for_ms,
             "blockMedia": true,
             "skipTlsVerification": request.skip_tls_verification,
+            "headers": request.headers,
             "geolocation": request.location,
             "actions": if request.formats.iter().any(|format| format.eq_ignore_ascii_case("screenshot")) {
                 json!([{ "type": "screenshot", "fullPage": true }])
@@ -363,6 +370,20 @@ async fn render_page(
         rendered: true,
         screenshot: rendered.screenshots.into_iter().next(),
     })
+}
+
+fn request_headers(headers: &HashMap<String, String>) -> Result<HeaderMap, WebExtractError> {
+    let mut result = HeaderMap::new();
+    for (name, value) in headers {
+        let name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
+            WebExtractError::InvalidUrl(format!("invalid request header name: {error}"))
+        })?;
+        let value = HeaderValue::from_str(value).map_err(|error| {
+            WebExtractError::InvalidUrl(format!("invalid request header value: {error}"))
+        })?;
+        result.insert(name, value);
+    }
+    Ok(result)
 }
 
 pub fn extract_markdown(html: &str, base_url: &str) -> (String, HashMap<String, Option<String>>) {
@@ -1027,6 +1048,21 @@ mod tests {
                 "https://cdn.example.com/photo.jpg"
             ]
         );
+    }
+
+    #[test]
+    fn custom_request_headers_are_validated() {
+        let headers = HashMap::from([
+            ("Authorization".to_string(), "Bearer token".to_string()),
+            ("X-Tenant".to_string(), "example".to_string()),
+        ]);
+        let parsed = request_headers(&headers).unwrap();
+        assert_eq!(parsed.get("x-tenant").unwrap(), "example");
+        assert!(request_headers(&HashMap::from([(
+            "bad header".to_string(),
+            "value".to_string()
+        )]))
+        .is_err());
     }
 
     #[test]

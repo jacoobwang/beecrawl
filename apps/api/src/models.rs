@@ -17,6 +17,8 @@ pub struct WebExtractScrapeRequest {
     pub use_browser: String,
     #[serde(rename = "skipTlsVerification", default)]
     pub skip_tls_verification: bool,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -57,6 +59,8 @@ pub struct FirecrawlV2ScrapeRequest {
     #[serde(rename = "maxAge")]
     pub max_age: Option<u64>,
     pub mobile: Option<bool>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,6 +180,8 @@ pub struct FirecrawlV2ScrapeOptions {
     #[serde(rename = "maxAge")]
     pub max_age: Option<u64>,
     pub mobile: Option<bool>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -500,6 +506,8 @@ pub struct SearchScrapeOptions {
     pub use_browser: String,
     #[serde(rename = "skipTlsVerification", default)]
     pub skip_tls_verification: bool,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
