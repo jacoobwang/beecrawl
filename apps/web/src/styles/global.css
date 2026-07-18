@@ -48,8 +48,8 @@ a { color: inherit; text-decoration: none; }
 .nav-links { display: flex; align-items: center; gap: 28px; color: var(--muted); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }.nav-links a:hover, .site-footer a:hover { color: var(--lime); }
 .nav-cta { padding: 11px 14px; border: 1px solid var(--lime); color: var(--lime); font: 700 10px/1 "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; }.nav-cta:hover { color: var(--bg); background: var(--lime); }
 .nav-products { position: relative; }
-.nav-products-trigger { display: inline-flex; align-items: center; gap: 6px; }
-.nav-products-chevron { position: relative; top: -1px; display: inline-flex; align-items: center; height: 1em; font-size: 14px; line-height: 1; transition: transform 160ms ease; }
+.nav-products-trigger { display: inline-flex; align-items: center; gap: 8px; line-height: 1; }
+.nav-products-chevron { display: inline-block; width: 8px; height: 8px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); transform-origin: 50% 62%; transition: transform 160ms ease; }
 .products-menu { position: absolute; top: calc(100% + 20px); left: 50%; z-index: 20; display: none; width: 320px; padding: 10px; border: 1px solid var(--line); background: var(--panel); box-shadow: 10px 10px 0 rgba(211, 146, 33, .42); transform: translateX(-50%); }
 .products-menu::before { position: absolute; top: -21px; right: 0; left: 0; height: 21px; content: ""; }
 .products-menu-label { margin: 4px 10px 8px; color: var(--amber); font: 700 9px/1.2 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
@@ -58,7 +58,7 @@ a { color: inherit; text-decoration: none; }
 .products-menu-title { font: 700 15px/1.1 Arial, Helvetica, sans-serif; }
 .products-menu-copy { color: var(--muted); font: 13px/1.35 Arial, Helvetica, sans-serif; letter-spacing: 0; }
 .nav-products:hover .products-menu, .nav-products:focus-within .products-menu { display: grid; }
-.nav-products:hover .nav-products-chevron, .nav-products:focus-within .nav-products-chevron { transform: rotate(180deg); }
+.nav-products:hover .nav-products-chevron, .nav-products:focus-within .nav-products-chevron { transform: translateY(1px) rotate(225deg); }
 
 .hero { position: relative; min-height: min(760px, calc(100svh - 110px)); overflow: hidden; background: var(--bg); }
 .hero::after { position: absolute; inset: 26px; border: 1px solid rgba(201, 237, 72, .24); content: ""; pointer-events: none; }
