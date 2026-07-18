@@ -19,6 +19,22 @@ pub struct WebExtractScrapeRequest {
     pub skip_tls_verification: bool,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    #[serde(skip)]
+    pub screenshot: Option<ScreenshotOptions>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScreenshotOptions {
+    #[serde(rename = "fullPage")]
+    pub full_page: bool,
+    pub quality: Option<u8>,
+    pub viewport: Option<ScreenshotViewport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScreenshotViewport {
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

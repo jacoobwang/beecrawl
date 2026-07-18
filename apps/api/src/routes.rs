@@ -17,8 +17,8 @@ use crate::models::{
     FirecrawlFormat, FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest,
     FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2MapRequest,
     FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
-    ScrapeResponse, SearchRequest, SearchScrapeOptions, WebExtractMapRequest,
-    WebExtractScrapeRequest, WebExtractScrapeResponse,
+    ScrapeResponse, ScreenshotOptions, ScreenshotViewport, SearchRequest, SearchScrapeOptions,
+    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -198,6 +198,7 @@ async fn run_extract(
             use_browser: request.use_browser.clone(),
             skip_tls_verification: false,
             headers: HashMap::new(),
+            screenshot: None,
         },
     )
     .await?;
@@ -268,6 +269,7 @@ async fn firecrawl_v2_scrape(
         request.mobile,
     )?;
     let requested_formats = request.formats;
+    let screenshot = firecrawl_screenshot_options(&requested_formats)?;
     let mut fetch_formats = firecrawl_format_names(&requested_formats);
     let requested_raw_html = fetch_formats.iter().any(|format| format == "rawHtml");
     if requested_formats
@@ -290,6 +292,7 @@ async fn firecrawl_v2_scrape(
             use_browser: "auto".to_string(),
             skip_tls_verification: request.skip_tls_verification.unwrap_or(false),
             headers: request.headers,
+            screenshot,
         },
     )
     .await?;
@@ -640,6 +643,7 @@ async fn firecrawl_v2_extract(
                     use_browser: "auto".to_string(),
                     skip_tls_verification: false,
                     headers: HashMap::new(),
+                    screenshot: None,
                 },
             )
             .await?,
@@ -868,6 +872,79 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
 
 fn firecrawl_format_names(formats: &[FirecrawlFormat]) -> Vec<String> {
     formats.iter().map(|format| format.name.clone()).collect()
+}
+
+fn firecrawl_screenshot_options(
+    formats: &[FirecrawlFormat],
+) -> Result<Option<ScreenshotOptions>, ApiError> {
+    let screenshots = formats
+        .iter()
+        .filter(|format| format.name() == "screenshot")
+        .collect::<Vec<_>>();
+    if screenshots.len() > 1 {
+        return Err(ApiError::InvalidRequest(
+            "Only one screenshot format may be requested".to_string(),
+        ));
+    }
+    let Some(format) = screenshots.first() else {
+        return Ok(None);
+    };
+    let full_page = format
+        .option("fullPage")
+        .map(|value| {
+            value.as_bool().ok_or_else(|| {
+                ApiError::InvalidRequest("screenshot.fullPage must be a boolean".to_string())
+            })
+        })
+        .transpose()?
+        .unwrap_or(false);
+    let quality = format
+        .option("quality")
+        .map(|value| {
+            value
+                .as_u64()
+                .filter(|quality| (1..=100).contains(quality))
+                .map(|quality| quality as u8)
+                .ok_or_else(|| {
+                    ApiError::InvalidRequest(
+                        "screenshot.quality must be between 1 and 100".to_string(),
+                    )
+                })
+        })
+        .transpose()?;
+    let viewport = format
+        .option("viewport")
+        .map(|value| {
+            let width = value.get("width").and_then(serde_json::Value::as_u64);
+            let height = value.get("height").and_then(serde_json::Value::as_u64);
+            match (width, height) {
+                (Some(width @ 1..=7680), Some(height @ 1..=4320)) => Ok(ScreenshotViewport {
+                    width: width as u32,
+                    height: height as u32,
+                }),
+                _ => Err(ApiError::InvalidRequest(
+                    "screenshot.viewport must contain width 1..7680 and height 1..4320".to_string(),
+                )),
+            }
+        })
+        .transpose()?;
+    let unsupported = format
+        .options
+        .keys()
+        .filter(|key| !matches!(key.as_str(), "fullPage" | "quality" | "viewport"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return Err(ApiError::InvalidRequest(format!(
+            "Unsupported screenshot options: {}",
+            unsupported.join(", ")
+        )));
+    }
+    Ok(Some(ScreenshotOptions {
+        full_page,
+        quality,
+        viewport,
+    }))
 }
 
 async fn enrich_firecrawl_document(
@@ -1446,6 +1523,33 @@ mod tests {
         .unwrap();
         assert_eq!(request.formats[0].name(), "json");
         assert_eq!(request.formats[0].option("prompt"), Some(&json!("Extract")));
+    }
+
+    #[test]
+    fn firecrawl_v2_validates_screenshot_options() {
+        let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [{
+                "type": "screenshot",
+                "fullPage": true,
+                "quality": 85,
+                "viewport": { "width": 1440, "height": 900 }
+            }]
+        }))
+        .unwrap();
+        let options = firecrawl_screenshot_options(&request.formats)
+            .unwrap()
+            .unwrap();
+        assert!(options.full_page);
+        assert_eq!(options.quality, Some(85));
+        assert_eq!(options.viewport.unwrap().width, 1440);
+
+        let invalid = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [{ "type": "screenshot", "quality": 0 }]
+        }))
+        .unwrap();
+        assert!(firecrawl_screenshot_options(&invalid.formats).is_err());
     }
 
     #[tokio::test]

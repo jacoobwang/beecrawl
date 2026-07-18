@@ -63,11 +63,19 @@ class BrowserPool:
                     if action.type == "wait":
                         await page.wait_for_timeout(action.milliseconds)
                     elif action.type == "screenshot":
-                        screenshot = await page.screenshot(full_page=action.full_page)
+                        if action.viewport:
+                            await page.set_viewport_size(action.viewport.model_dump())
+                        screenshot_options: dict[str, Any] = {"full_page": action.full_page}
+                        media_type = "image/png"
+                        if action.quality is not None:
+                            screenshot_options.update(type="jpeg", quality=action.quality)
+                            media_type = "image/jpeg"
+                        screenshot = await page.screenshot(**screenshot_options)
                         encoded = base64.b64encode(screenshot).decode("ascii")
-                        screenshots.append(encoded)
+                        data_url = f"data:{media_type};base64,{encoded}"
+                        screenshots.append(data_url)
                         action_results.append(
-                            ActionResult(idx=idx, type="screenshot", result={"data": encoded})
+                            ActionResult(idx=idx, type="screenshot", result={"data": data_url})
                         )
                     elif action.type == "executeJavascript":
                         value = await page.evaluate(action.script)

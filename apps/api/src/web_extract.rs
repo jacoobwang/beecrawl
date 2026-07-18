@@ -157,6 +157,7 @@ fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String 
         "location": &request.location,
         "skip_tls_verification": request.skip_tls_verification,
         "headers": &request.headers,
+        "screenshot": &request.screenshot,
     }))
     .expect("cache key payload serializes");
     format!("scrape:{:x}", Sha256::digest(payload))
@@ -322,6 +323,17 @@ async fn render_page(
 ) -> Result<ProviderPage, WebExtractError> {
     let engine_url =
         std::env::var("BEE_ENGINE_URL").unwrap_or_else(|_| "http://127.0.0.1:8020".to_string());
+    let screenshot = request.screenshot.clone().or_else(|| {
+        request
+            .formats
+            .iter()
+            .any(|format| format.eq_ignore_ascii_case("screenshot"))
+            .then_some(crate::models::ScreenshotOptions {
+                full_page: true,
+                quality: None,
+                viewport: None,
+            })
+    });
     let response = client
         .post(format!("{}/scrape", engine_url.trim_end_matches('/')))
         .json(&json!({
@@ -334,8 +346,13 @@ async fn render_page(
             "skipTlsVerification": request.skip_tls_verification,
             "headers": request.headers,
             "geolocation": request.location,
-            "actions": if request.formats.iter().any(|format| format.eq_ignore_ascii_case("screenshot")) {
-                json!([{ "type": "screenshot", "fullPage": true }])
+            "actions": if let Some(options) = &screenshot {
+                json!([{
+                    "type": "screenshot",
+                    "fullPage": options.full_page,
+                    "quality": options.quality,
+                    "viewport": options.viewport,
+                }])
             } else {
                 json!([])
             },

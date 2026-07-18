@@ -15,9 +15,16 @@ class WaitAction(BaseModel):
     milliseconds: int = Field(default=1000, ge=0, le=60000)
 
 
+class ScreenshotViewport(BaseModel):
+    width: int = Field(ge=1, le=7680)
+    height: int = Field(ge=1, le=4320)
+
+
 class ScreenshotAction(BaseModel):
     type: Literal["screenshot"]
     full_page: bool = Field(default=False, alias="fullPage")
+    quality: int | None = Field(default=None, ge=1, le=100)
+    viewport: ScreenshotViewport | None = None
 
 
 class ExecuteJavascriptAction(BaseModel):

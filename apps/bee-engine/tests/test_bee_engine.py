@@ -73,6 +73,26 @@ def test_scrape_sync_returns_fire_engine_style_response() -> None:
     assert body["actionContent"][0]["html"] == "<html>action</html>"
 
 
+def test_screenshot_action_accepts_quality_and_viewport() -> None:
+    request = BeeEngineScrapeRequest.model_validate(
+        {
+            "url": "https://example.com",
+            "actions": [
+                {
+                    "type": "screenshot",
+                    "fullPage": True,
+                    "quality": 80,
+                    "viewport": {"width": 1440, "height": 900},
+                }
+            ],
+        }
+    )
+    action = request.actions[0]
+    assert action.type == "screenshot"
+    assert action.quality == 80
+    assert action.viewport.width == 1440
+
+
 def test_scrape_instant_return_status_and_delete() -> None:
     app_module._browser_pool = FakeBrowserPool()
     app_module._job_store = JobStore(app_module._browser_pool)

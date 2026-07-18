@@ -501,6 +501,7 @@ async fn process_task(
             use_browser: options.use_browser.clone(),
             skip_tls_verification: options.skip_tls_verification,
             headers: std::collections::HashMap::new(),
+            screenshot: None,
         },
     )
     .await;
