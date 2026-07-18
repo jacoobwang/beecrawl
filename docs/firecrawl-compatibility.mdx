@@ -73,6 +73,9 @@ Query parameters participate in crawl identity unless
 anchors are removed. `deduplicateSimilarURLs=true` additionally coalesces
 http/https, www, trailing-slash, and index-document aliases through a
 database-enforced per-job key.
+`POST /v2/crawl` accepts a UUID `x-idempotency-key`. The first request reserves
+the key atomically; reuse returns HTTP 409 even after the associated crawl has
+expired.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

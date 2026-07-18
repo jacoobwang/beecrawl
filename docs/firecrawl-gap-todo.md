@@ -41,7 +41,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Implement all sitemap modes and external/subdomain/domain policies.
 - [x] Add crawl delay and per-job maximum concurrency.
 - [x] Add similar-URL deduplication and query-parameter policy parity.
-- [ ] Add idempotency keys.
+- [x] Add idempotency keys.
 - [ ] Add signed webhooks for crawl and batch lifecycle events.
 - [ ] Add WebSocket job progress and document events.
 

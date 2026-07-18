@@ -473,6 +473,7 @@ async fn firecrawl_v2_crawl(
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
+    let idempotency_key = firecrawl_idempotency_key(&headers)?;
     validate_firecrawl_crawl_defaults(&request)?;
     let delay_ms = firecrawl_delay_ms(request.delay)?;
     let max_concurrency = firecrawl_max_concurrency(request.max_concurrency)?;
@@ -499,6 +500,7 @@ async fn firecrawl_v2_crawl(
         .crawls
         .enqueue(CrawlRequest {
             url: request.url,
+            idempotency_key,
             limit: request.limit,
             max_depth: request.max_discovery_depth,
             include_paths: request.include_paths,
@@ -906,6 +908,18 @@ fn firecrawl_max_concurrency(value: Option<usize>) -> Result<usize, ApiError> {
         )),
         None => Ok(10),
     }
+}
+
+fn firecrawl_idempotency_key(headers: &HeaderMap) -> Result<Option<String>, ApiError> {
+    let Some(value) = headers.get("x-idempotency-key") else {
+        return Ok(None);
+    };
+    let value = value
+        .to_str()
+        .map_err(|_| ApiError::InvalidRequest("x-idempotency-key must be a UUID".to_string()))?;
+    uuid::Uuid::parse_str(value)
+        .map_err(|_| ApiError::InvalidRequest("x-idempotency-key must be a UUID".to_string()))?;
+    Ok(Some(value.to_string()))
 }
 
 fn firecrawl_format_names(formats: &[FirecrawlFormat]) -> Vec<String> {
@@ -1960,6 +1974,23 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("format 'audio' is not supported"));
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_rejects_invalid_idempotency_keys_before_enqueue() {
+        let response = app_with_crawls(CrawlStore::unavailable("not needed"))
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/crawl")
+                    .header("content-type", "application/json")
+                    .header("x-idempotency-key", "not-a-uuid")
+                    .body(Body::from(r#"{"url":"https://example.com"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

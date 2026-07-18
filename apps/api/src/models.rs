@@ -409,6 +409,8 @@ pub struct WebExtractMapMetadata {
 #[derive(Debug, Deserialize, Clone)]
 pub struct CrawlRequest {
     pub url: String,
+    #[serde(skip)]
+    pub idempotency_key: Option<String>,
     #[serde(default = "default_crawl_limit")]
     pub limit: usize,
     #[serde(rename = "maxDepth", default = "default_crawl_max_depth")]

@@ -29,6 +29,8 @@ pub enum CrawlStoreError {
     StorageUnavailable(String),
     #[error("invalid_crawl_request: {0}")]
     InvalidRequest(String),
+    #[error("idempotency_key_already_used: {0}")]
+    IdempotencyConflict(String),
     #[error("crawl_storage_failed: {0}")]
     Database(#[from] sqlx::Error),
 }
@@ -38,6 +40,7 @@ impl CrawlStoreError {
         match self {
             Self::StorageUnavailable(_) => "crawl_storage_unavailable",
             Self::InvalidRequest(_) => "invalid_crawl_request",
+            Self::IdempotencyConflict(_) => "idempotency_key_already_used",
             Self::Database(_) => "crawl_storage_failed",
         }
     }
@@ -46,6 +49,7 @@ impl CrawlStoreError {
         match self {
             Self::StorageUnavailable(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Self::InvalidRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            Self::IdempotencyConflict(_) => axum::http::StatusCode::CONFLICT,
             Self::Database(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -104,6 +108,21 @@ impl CrawlStore {
         let id = Uuid::new_v4();
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
+        if let Some(key) = request.idempotency_key.as_deref() {
+            let key = Uuid::parse_str(key).map_err(|_| {
+                CrawlStoreError::InvalidRequest("x-idempotency-key must be a UUID".to_string())
+            })?;
+            let inserted = sqlx::query(
+                "INSERT INTO idempotency_keys (key) VALUES ($1) ON CONFLICT DO NOTHING",
+            )
+            .bind(key)
+            .execute(&mut *transaction)
+            .await?;
+            if inserted.rows_affected() == 0 {
+                transaction.rollback().await?;
+                return Err(CrawlStoreError::IdempotencyConflict(key.to_string()));
+            }
+        }
         sqlx::query(
             "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now() + make_interval(days => $23))",
         )
@@ -786,6 +805,7 @@ mod tests {
     fn request(max_retries: usize) -> CrawlRequest {
         CrawlRequest {
             url: "https://example.com".to_string(),
+            idempotency_key: None,
             limit: 10,
             max_depth: 0,
             include_paths: Vec::new(),
@@ -831,7 +851,7 @@ mod tests {
     }
 
     async fn reset(store: &CrawlStore) {
-        sqlx::query("TRUNCATE crawl_tasks, crawl_jobs CASCADE")
+        sqlx::query("TRUNCATE crawl_tasks, crawl_jobs, idempotency_keys CASCADE")
             .execute(store.pool().unwrap())
             .await
             .unwrap();
@@ -996,6 +1016,25 @@ mod tests {
         .unwrap();
         assert!(store.claim_task("worker-two").await.unwrap().is_some());
         store.cancel(&crawl.id).await.unwrap();
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_rejects_a_reused_idempotency_key() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let key = Uuid::new_v4().to_string();
+        let mut first = request(0);
+        first.idempotency_key = Some(key.clone());
+        store.enqueue(first).await.unwrap();
+
+        let mut second = request(0);
+        second.idempotency_key = Some(key);
+        assert!(matches!(
+            store.enqueue(second).await,
+            Err(CrawlStoreError::IdempotencyConflict(_))
+        ));
         reset(&store).await;
     }
 
