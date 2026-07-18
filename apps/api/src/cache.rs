@@ -60,6 +60,7 @@ impl CacheStore {
             engine_outcomes: vec![],
             fallback_reason: Some("served from scrape cache".to_string()),
             proxy_used: false,
+            actions: None,
         })
     }
 
@@ -131,6 +132,7 @@ mod tests {
             engine_outcomes: vec![],
             fallback_reason: None,
             proxy_used: false,
+            actions: None,
         };
         store.put(key, &page).await;
         let cached = store.get(key, 3600, true).await.unwrap();

@@ -56,11 +56,11 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 6. Public browser actions
 
-- [ ] Expose wait-by-duration and wait-by-selector.
-- [ ] Expose click, write, press, scroll, screenshot, and page scrape actions.
-- [ ] Expose JavaScript execution and PDF generation.
-- [ ] Return ordered action results and intermediate scrape documents.
-- [ ] Enforce action count, timeout, and payload limits.
+- [x] Expose wait-by-duration and wait-by-selector.
+- [x] Expose click, write, press, scroll, screenshot, and page scrape actions.
+- [x] Expose JavaScript execution and PDF generation.
+- [x] Return ordered action results and intermediate scrape documents.
+- [x] Enforce action count, timeout, and payload limits.
 
 ## 7. File parsing
 

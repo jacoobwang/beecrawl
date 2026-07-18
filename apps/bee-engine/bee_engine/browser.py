@@ -79,7 +79,11 @@ class BrowserPool:
 
                 for idx, action in enumerate(request.actions):
                     if action.type == "wait":
-                        await page.wait_for_timeout(action.milliseconds)
+                        if action.selector:
+                            await page.wait_for_selector(action.selector, timeout=request.timeout)
+                        else:
+                            await page.wait_for_timeout(action.milliseconds)
+                        action_results.append(ActionResult(idx=idx, type="wait", result={"ok": True}))
                     elif action.type == "screenshot":
                         if action.viewport:
                             await page.set_viewport_size(action.viewport.model_dump())
@@ -117,6 +121,55 @@ class BrowserPool:
                         cookies = await context.cookies()
                         action_results.append(
                             ActionResult(idx=idx, type="getCookies", result={"cookies": cookies})
+                        )
+                    elif action.type == "click":
+                        locator = page.locator(action.selector)
+                        if action.all:
+                            count = await locator.count()
+                            for match in await locator.all():
+                                await match.click()
+                        else:
+                            await locator.first.click()
+                            count = 1
+                        action_results.append(
+                            ActionResult(idx=idx, type="click", result={"clicked": count})
+                        )
+                    elif action.type == "write":
+                        await page.keyboard.type(action.text)
+                        action_results.append(
+                            ActionResult(idx=idx, type="write", result={"written": len(action.text)})
+                        )
+                    elif action.type == "press":
+                        await page.keyboard.press(action.key)
+                        action_results.append(
+                            ActionResult(idx=idx, type="press", result={"key": action.key})
+                        )
+                    elif action.type == "scroll":
+                        distance = -720 if action.direction == "up" else 720
+                        if action.selector:
+                            await page.locator(action.selector).evaluate(
+                                "(element, distance) => element.scrollBy(0, distance)", distance
+                            )
+                        else:
+                            await page.mouse.wheel(0, distance)
+                        action_results.append(
+                            ActionResult(
+                                idx=idx,
+                                type="scroll",
+                                result={"direction": action.direction, "selector": action.selector},
+                            )
+                        )
+                    elif action.type == "pdf":
+                        document = await page.pdf(
+                            landscape=action.landscape,
+                            print_background=action.print_background,
+                            format=action.format,
+                        )
+                        data_url = "data:application/pdf;base64," + base64.b64encode(
+                            document
+                        ).decode("ascii")
+                        action_results.append(
+                            ActionResult(idx=idx, type="pdf", result={"data": data_url})
                         )
 
                 headers = dict(response.headers) if response else {}
@@ -213,12 +266,12 @@ async def _route_handler(route) -> None:
         await route.continue_()
 
 
-def _serialize_javascript_result(value: Any) -> str:
-    if isinstance(value, str):
-        return value
+def _serialize_javascript_result(value: Any) -> dict[str, Any]:
+    value_type = "null" if value is None else type(value).__name__
     try:
         import json
 
-        return json.dumps(value)
+        json.dumps(value)
+        return {"type": value_type, "value": value}
     except TypeError:
-        return str(value)
+        return {"type": value_type, "value": str(value)}

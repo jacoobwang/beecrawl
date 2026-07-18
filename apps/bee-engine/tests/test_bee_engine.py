@@ -113,6 +113,50 @@ def test_screenshot_action_accepts_quality_and_viewport() -> None:
     assert action.viewport.width == 1440
 
 
+def test_public_browser_actions_validate_in_order() -> None:
+    request = BeeEngineScrapeRequest.model_validate(
+        {
+            "url": "https://example.com",
+            "timeout": 10000,
+            "actions": [
+                {"type": "wait", "selector": "#ready"},
+                {"type": "click", "selector": "button", "all": True},
+                {"type": "write", "text": "hello"},
+                {"type": "press", "key": "Enter"},
+                {"type": "scroll", "direction": "down"},
+                {"type": "scrape"},
+                {"type": "executeJavascript", "script": "document.title"},
+                {"type": "pdf", "format": "A4"},
+            ],
+        }
+    )
+    assert [action.type for action in request.actions] == [
+        "wait",
+        "click",
+        "write",
+        "press",
+        "scroll",
+        "scrape",
+        "executeJavascript",
+        "pdf",
+    ]
+
+
+def test_action_wait_budget_is_bounded_by_request_timeout() -> None:
+    try:
+        BeeEngineScrapeRequest.model_validate(
+            {
+                "url": "https://example.com",
+                "timeout": 1000,
+                "actions": [{"type": "wait", "milliseconds": 1001}],
+            }
+        )
+    except ValueError as error:
+        assert "action waits exceed" in str(error)
+    else:
+        raise AssertionError("wait budget should be rejected")
+
+
 def test_proxy_settings_are_forwarded_to_browser_context() -> None:
     request = BeeEngineScrapeRequest.model_validate(
         {

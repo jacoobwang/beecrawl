@@ -78,14 +78,18 @@ pub async fn scrape_with_cache(
         .formats
         .iter()
         .any(|format| format.eq_ignore_ascii_case("screenshot"));
-    let (mut page, _initial_markdown, _initial_meta, from_cache) =
-        if let Some(page) = cache.get(&key, max_age_seconds, requires_screenshot).await {
-            let (page, markdown, metadata) = page_to_markdown(page);
-            (page, markdown, metadata, true)
-        } else {
-            let (page, markdown, metadata) = scrape_page(client, &request).await?;
-            (page, markdown, metadata, false)
-        };
+    let cached = if request.actions.is_empty() {
+        cache.get(&key, max_age_seconds, requires_screenshot).await
+    } else {
+        None
+    };
+    let (mut page, _initial_markdown, _initial_meta, from_cache) = if let Some(page) = cached {
+        let (page, markdown, metadata) = page_to_markdown(page);
+        (page, markdown, metadata, true)
+    } else {
+        let (page, markdown, metadata) = scrape_page(client, &request).await?;
+        (page, markdown, metadata, false)
+    };
     let configured_html = configured_content_html(&page.html, request.content.as_ref())?;
     let (markdown, markdown_meta) =
         extract_configured_markdown(&page.html, &configured_html, &page.final_url);
@@ -143,6 +147,7 @@ pub async fn scrape_with_cache(
         raw_html,
         links,
         screenshot,
+        actions: page.actions,
         metadata: WebExtractMetadata {
             title: page.title,
             language: page.language,
@@ -230,6 +235,10 @@ async fn scrape_page(
             .iter()
             .any(|format| format.eq_ignore_ascii_case("screenshot")) =>
         {
+            let page = render_page(client, request).await?;
+            Ok(score_single_page(page))
+        }
+        _ if !request.actions.is_empty() => {
             let page = render_page(client, request).await?;
             Ok(score_single_page(page))
         }
@@ -611,6 +620,7 @@ async fn fetch_page_with_tls(
         )],
         fallback_reason: fingerprint_failure.clone(),
         proxy_used: proxy.is_some(),
+        actions: None,
     };
     if let Some(reason) = fingerprint_failure {
         page.engine_outcomes.insert(
@@ -720,6 +730,7 @@ async fn fetch_page_with_fingerprint_service(
         )],
         fallback_reason: None,
         proxy_used: proxy.is_some(),
+        actions: None,
     })
 }
 
@@ -753,6 +764,19 @@ async fn render_page_at(
                 viewport: None,
             })
     });
+    let mut actions = request
+        .actions
+        .iter()
+        .map(|action| serde_json::to_value(action).expect("browser action serializes"))
+        .collect::<Vec<_>>();
+    if let Some(options) = &screenshot {
+        actions.push(json!({
+            "type": "screenshot",
+            "fullPage": options.full_page,
+            "quality": options.quality,
+            "viewport": options.viewport,
+        }));
+    }
     let response = client
         .post(format!("{}/scrape", engine_url.trim_end_matches('/')))
         .json(&json!({
@@ -766,16 +790,7 @@ async fn render_page_at(
             "headers": request.headers,
             "proxy": request.proxy,
             "geolocation": request.location,
-            "actions": if let Some(options) = &screenshot {
-                json!([{
-                    "type": "screenshot",
-                    "fullPage": options.full_page,
-                    "quality": options.quality,
-                    "viewport": options.viewport,
-                }])
-            } else {
-                json!([])
-            },
+            "actions": actions,
         }))
         .timeout(std::time::Duration::from_secs(request.timeout_seconds + 5))
         .send()
@@ -791,11 +806,12 @@ async fn render_page_at(
         .json()
         .await
         .map_err(|err| WebExtractError::RenderFailed(err.to_string()))?;
-    if let Some(error) = rendered.page_error {
+    if let Some(error) = rendered.page_error.as_ref() {
         if !error.trim().is_empty() {
-            return Err(WebExtractError::RenderFailed(error));
+            return Err(WebExtractError::RenderFailed(error.to_string()));
         }
     }
+    let actions = (!request.actions.is_empty()).then(|| action_response(&rendered));
     Ok(ProviderPage {
         url: request.url.clone(),
         final_url: rendered.url,
@@ -815,6 +831,31 @@ async fn render_page_at(
         )],
         fallback_reason: None,
         proxy_used: request.proxy.is_some(),
+        actions,
+    })
+}
+
+fn action_response(rendered: &BeeEngineScrapeResponse) -> serde_json::Value {
+    let javascript_returns = rendered
+        .action_results
+        .iter()
+        .filter(|result| result["type"] == "executeJavascript")
+        .filter_map(|result| result.get("result").and_then(|value| value.get("return")))
+        .cloned()
+        .collect::<Vec<_>>();
+    let pdfs = rendered
+        .action_results
+        .iter()
+        .filter(|result| result["type"] == "pdf")
+        .filter_map(|result| result.get("result").and_then(|value| value.get("data")))
+        .cloned()
+        .collect::<Vec<_>>();
+    json!({
+        "screenshots": rendered.screenshots,
+        "scrapes": rendered.action_content,
+        "javascriptReturns": javascript_returns,
+        "pdfs": pdfs,
+        "results": rendered.action_results,
     })
 }
 
@@ -1771,6 +1812,7 @@ mod tests {
             engine_outcomes: vec![],
             fallback_reason: None,
             proxy_used: false,
+            actions: None,
         };
         let article = "# Useful guide\n\n".to_string() + &"substantive content ".repeat(100);
         let challenge = "# Just a moment\n\nVerify you are human. CAPTCHA";
@@ -1786,6 +1828,33 @@ mod tests {
             parse_engine_urls(" http://bee-a:8020/,http://bee-b:8020 ,, "),
             ["http://bee-a:8020", "http://bee-b:8020"]
         );
+    }
+
+    #[test]
+    fn action_response_keeps_grouped_and_ordered_results() {
+        let rendered = BeeEngineScrapeResponse {
+            time_taken: Some(10),
+            content: "<main>final</main>".to_string(),
+            url: "https://example.com/".to_string(),
+            page_status_code: Some(200),
+            page_error: None,
+            response_headers: HashMap::new(),
+            screenshots: vec!["data:image/png;base64,abc".to_string()],
+            action_content: vec![json!({
+                "url": "https://example.com/step",
+                "html": "<main>step</main>"
+            })],
+            action_results: vec![
+                json!({"idx": 0, "type": "scrape", "result": {"url": "https://example.com/step"}}),
+                json!({"idx": 1, "type": "executeJavascript", "result": {"return": {"type": "str", "value": "ok"}}}),
+                json!({"idx": 2, "type": "pdf", "result": {"data": "data:application/pdf;base64,pdf"}}),
+            ],
+        };
+        let actions = action_response(&rendered);
+        assert_eq!(actions["results"].as_array().unwrap().len(), 3);
+        assert_eq!(actions["scrapes"][0]["html"], "<main>step</main>");
+        assert_eq!(actions["javascriptReturns"][0]["value"], "ok");
+        assert_eq!(actions["pdfs"][0], "data:application/pdf;base64,pdf");
     }
 
     #[test]

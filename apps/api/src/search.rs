@@ -90,6 +90,7 @@ pub async fn search(
                     proxy: options.proxy.clone(),
                     screenshot: None,
                     content: options.content.clone(),
+                    actions: options.actions.clone(),
                 },
             )
             .await

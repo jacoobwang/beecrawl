@@ -22,7 +22,9 @@ class JobStore:
 
     async def run_sync(self, request: BeeEngineScrapeRequest) -> BeeEngineScrapeResponse:
         started = time.monotonic()
-        response = await self._browser_pool.render(request)
+        response = await asyncio.wait_for(
+            self._browser_pool.render(request), timeout=request.timeout / 1000
+        )
         response.time_taken = _elapsed_ms(started)
         return response
 

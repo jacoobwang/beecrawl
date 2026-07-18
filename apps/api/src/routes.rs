@@ -202,6 +202,7 @@ async fn run_extract(
             proxy: None,
             screenshot: None,
             content: None,
+            actions: vec![],
         },
     )
     .await?;
@@ -262,6 +263,7 @@ async fn firecrawl_v2_scrape(
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
+    validate_browser_actions(&request.actions, request.timeout, request.wait_for_ms)?;
     validate_firecrawl_scrape_options(
         request.only_main_content,
         request.remove_base64_images,
@@ -306,6 +308,7 @@ async fn firecrawl_v2_scrape(
             proxy,
             screenshot,
             content: Some(content),
+            actions: request.actions,
         },
     )
     .await?;
@@ -485,6 +488,7 @@ async fn firecrawl_v2_crawl(
         webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
     }
     let scrape = request.scrape_options.unwrap_or_default();
+    validate_browser_actions(&scrape.actions, scrape.timeout, scrape.wait_for_ms)?;
     let proxy = firecrawl_proxy(scrape.proxy.as_deref())?;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -531,6 +535,7 @@ async fn firecrawl_v2_crawl(
             use_browser: "auto".to_string(),
             skip_tls_verification: scrape.skip_tls_verification.unwrap_or(false),
             max_retries: 2,
+            actions: scrape.actions,
         })
         .await?;
     let status_url = format!("/v2/crawl/{}", response.id);
@@ -549,6 +554,7 @@ async fn firecrawl_v2_batch_scrape(
         webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
     }
     let scrape = request.scrape_options;
+    validate_browser_actions(&scrape.actions, scrape.timeout, scrape.wait_for_ms)?;
     let proxy = firecrawl_proxy(scrape.proxy.as_deref())?;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -580,6 +586,7 @@ async fn firecrawl_v2_batch_scrape(
             use_browser: "auto".to_string(),
             skip_tls_verification: scrape.skip_tls_verification.unwrap_or(false),
             max_retries: 2,
+            actions: scrape.actions,
         })
         .await?;
     let status_url = format!("/v2/batch/scrape/{}", response.id);
@@ -825,6 +832,7 @@ async fn firecrawl_v2_extract(
                     proxy: None,
                     screenshot: None,
                     content: None,
+                    actions: vec![],
                 },
             )
             .await?,
@@ -922,6 +930,7 @@ async fn firecrawl_v2_search(
     }
 
     if let Some(options) = &request.scrape_options {
+        validate_browser_actions(&options.actions, options.timeout, options.wait_for_ms)?;
         validate_firecrawl_scrape_options(
             options.only_main_content,
             options.remove_base64_images,
@@ -960,6 +969,7 @@ async fn firecrawl_v2_search(
                     include_tags: options.include_tags,
                     exclude_tags: options.exclude_tags,
                 }),
+                actions: options.actions,
             }),
         },
     )
@@ -1021,6 +1031,116 @@ fn validate_firecrawl_scrape_options(
             unsupported.join(", ")
         )))
     }
+}
+
+fn validate_browser_actions(
+    actions: &[crate::models::BrowserAction],
+    timeout_ms: u64,
+    initial_wait_ms: u64,
+) -> Result<(), ApiError> {
+    use crate::models::BrowserAction;
+    if actions.len() > 50 {
+        return Err(ApiError::InvalidRequest(
+            "actions must contain at most 50 entries".to_string(),
+        ));
+    }
+    if !(1_000..=300_000).contains(&timeout_ms) {
+        return Err(ApiError::InvalidRequest(
+            "timeout must be between 1000 and 300000 milliseconds".to_string(),
+        ));
+    }
+    let mut waits = initial_wait_ms;
+    let mut payload = 0usize;
+    for action in actions {
+        match action {
+            BrowserAction::Wait {
+                milliseconds,
+                selector,
+            } => {
+                if milliseconds.is_some() && selector.is_some() {
+                    return Err(ApiError::InvalidRequest(
+                        "wait action requires exactly one of milliseconds or selector".to_string(),
+                    ));
+                }
+                waits = waits.saturating_add(milliseconds.unwrap_or_else(|| {
+                    if selector.is_none() {
+                        1_000
+                    } else {
+                        0
+                    }
+                }));
+                if selector.as_ref().is_some_and(|value| value.len() > 4_096) {
+                    return Err(ApiError::InvalidRequest(
+                        "action selector exceeds 4096 bytes".to_string(),
+                    ));
+                }
+            }
+            BrowserAction::Click { selector, .. } => {
+                if selector.is_empty() || selector.len() > 4_096 {
+                    return Err(ApiError::InvalidRequest(
+                        "click selector must contain 1 to 4096 bytes".to_string(),
+                    ));
+                }
+            }
+            BrowserAction::Write { text } => payload += text.len(),
+            BrowserAction::ExecuteJavascript { script } => payload += script.len(),
+            BrowserAction::Screenshot {
+                quality, viewport, ..
+            } => {
+                if quality.is_some_and(|value| value == 0 || value > 100) {
+                    return Err(ApiError::InvalidRequest(
+                        "screenshot quality must be between 1 and 100".to_string(),
+                    ));
+                }
+                if viewport.as_ref().is_some_and(|value| {
+                    value.width == 0
+                        || value.width > 7_680
+                        || value.height == 0
+                        || value.height > 4_320
+                }) {
+                    return Err(ApiError::InvalidRequest(
+                        "screenshot viewport exceeds 7680x4320".to_string(),
+                    ));
+                }
+            }
+            BrowserAction::Press { key } if key.is_empty() || key.len() > 128 => {
+                return Err(ApiError::InvalidRequest(
+                    "press key must contain 1 to 128 bytes".to_string(),
+                ));
+            }
+            BrowserAction::Scroll { direction, .. }
+                if !matches!(direction.as_str(), "up" | "down") =>
+            {
+                return Err(ApiError::InvalidRequest(
+                    "scroll direction must be up or down".to_string(),
+                ));
+            }
+            BrowserAction::Pdf {
+                format: Some(format),
+                ..
+            } if !matches!(
+                format.as_str(),
+                "Letter" | "Legal" | "Tabloid" | "A0" | "A1" | "A2" | "A3" | "A4" | "A5"
+            ) =>
+            {
+                return Err(ApiError::InvalidRequest(
+                    "pdf format is not supported".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    if waits > timeout_ms {
+        return Err(ApiError::InvalidRequest(
+            "action waits exceed the request timeout".to_string(),
+        ));
+    }
+    if payload > 262_144 {
+        return Err(ApiError::InvalidRequest(
+            "action script and text payloads exceed 262144 bytes".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Result<(), ApiError> {
@@ -1574,6 +1694,7 @@ fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
         "rawHtml": response.raw_html,
         "links": response.links,
         "screenshot": response.screenshot,
+        "actions": response.actions,
         "metadata": {
             "title": response.metadata.title,
             "language": response.metadata.language,
@@ -2194,14 +2315,30 @@ mod tests {
     }
 
     #[test]
-    fn firecrawl_v2_rejects_unknown_request_fields() {
-        let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+    fn firecrawl_v2_accepts_and_validates_browser_actions() {
+        let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
             "url": "https://example.com",
             "formats": ["markdown"],
-            "actions": [{ "type": "click", "selector": "button" }]
+            "actions": [
+                { "type": "wait", "selector": "#ready" },
+                { "type": "click", "selector": "button" },
+                { "type": "write", "text": "hello" },
+                { "type": "press", "key": "Enter" },
+                { "type": "scroll", "direction": "down" },
+                { "type": "scrape" },
+                { "type": "executeJavascript", "script": "document.title" },
+                { "type": "pdf", "format": "A4" }
+            ]
         }))
-        .unwrap_err();
-        assert!(error.to_string().contains("unknown field `actions`"));
+        .unwrap();
+        assert_eq!(request.actions.len(), 8);
+        validate_browser_actions(&request.actions, request.timeout, request.wait_for_ms).unwrap();
+
+        let invalid = vec![crate::models::BrowserAction::Wait {
+            milliseconds: Some(300_001),
+            selector: None,
+        }];
+        assert!(validate_browser_actions(&invalid, 300_000, 0).is_err());
     }
 
     #[tokio::test]

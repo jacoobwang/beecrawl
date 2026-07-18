@@ -12,9 +12,10 @@ use uuid::Uuid;
 use crate::cache::CacheStore;
 use crate::models::{
     ActiveCrawl, ActiveCrawlsResponse, BatchScrapeEnqueueResponse, BatchScrapeRequest,
-    CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
-    CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse, FirecrawlWebhook,
-    ProxyConfig, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    BrowserAction, CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest,
+    CrawlStatusQuery, CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse,
+    FirecrawlWebhook, ProxyConfig, WebExtractMapRequest, WebExtractScrapeRequest,
+    WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
 
@@ -124,7 +125,7 @@ impl CrawlStore {
             }
         }
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, now() + make_interval(days => $25))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, actions, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, now() + make_interval(days => $26))",
         )
         .bind(id)
         .bind(&url)
@@ -160,6 +161,7 @@ impl CrawlStore {
         .bind(&request.use_browser)
         .bind(request.skip_tls_verification)
         .bind(request.max_retries as i32)
+        .bind(serde_json::to_value(&request.actions).expect("actions serialize"))
         .bind(crawl_retention_days())
         .execute(&mut *transaction)
         .await?;
@@ -210,7 +212,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, $10, $11, now() + make_interval(days => $12))",
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, actions, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, $10, $11, $12, now() + make_interval(days => $13))",
         )
         .bind(id)
         .bind(&urls[0])
@@ -233,6 +235,7 @@ impl CrawlStore {
         .bind(&request.use_browser)
         .bind(request.skip_tls_verification)
         .bind(request.max_retries as i32)
+        .bind(serde_json::to_value(&request.actions).expect("actions serialize"))
         .bind(crawl_retention_days())
         .execute(&mut *transaction)
         .await?;
@@ -425,7 +428,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, actions, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -454,6 +457,8 @@ impl CrawlStore {
             wait_for_ms: row.try_get::<i64, _>("wait_for_ms")? as u64,
             use_browser: row.try_get("use_browser")?,
             skip_tls_verification: row.try_get("skip_tls_verification")?,
+            actions: serde_json::from_value(row.try_get("actions")?)
+                .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?,
             cancelled: row.try_get("cancel_requested")?,
         })
     }
@@ -661,6 +666,7 @@ async fn process_task(
                 proxy: options.proxy.clone(),
                 screenshot: None,
                 content: None,
+                actions: options.actions.clone(),
             },
         )
         .await
@@ -786,6 +792,7 @@ struct CrawlOptions {
     wait_for_ms: u64,
     use_browser: String,
     skip_tls_verification: bool,
+    actions: Vec<BrowserAction>,
     cancelled: bool,
 }
 
@@ -816,6 +823,7 @@ fn webhook_document(page: &WebExtractScrapeResponse) -> Value {
         "rawHtml": page.raw_html,
         "links": page.links,
         "screenshot": page.screenshot,
+        "actions": page.actions,
         "metadata": {
             "title": page.metadata.title,
             "language": page.metadata.language,
@@ -987,6 +995,7 @@ mod tests {
             use_browser: "never".to_string(),
             skip_tls_verification: false,
             max_retries,
+            actions: vec![],
         }
     }
 
@@ -1000,6 +1009,7 @@ mod tests {
             raw_html: None,
             links: None,
             screenshot: None,
+            actions: None,
             metadata: WebExtractMetadata {
                 title: Some("Example".to_string()),
                 language: Some("en".to_string()),
@@ -1097,10 +1107,19 @@ mod tests {
                 use_browser: "never".to_string(),
                 skip_tls_verification: false,
                 max_retries: 0,
+                actions: vec![BrowserAction::Wait {
+                    milliseconds: Some(10),
+                    selector: None,
+                }],
             })
             .await
             .unwrap();
         assert_eq!(batch.total, 2);
+        let options = store
+            .options(Uuid::parse_str(&batch.id).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(options.actions.len(), 1);
         let status = store
             .get(&batch.id, CrawlStatusQuery::default())
             .await
@@ -1141,6 +1160,7 @@ mod tests {
                 use_browser: "never".to_string(),
                 skip_tls_verification: false,
                 max_retries: 0,
+                actions: vec![],
             })
             .await
             .unwrap();

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Geolocation(BaseModel):
@@ -19,7 +19,16 @@ class ProxySettings(BaseModel):
 
 class WaitAction(BaseModel):
     type: Literal["wait"]
-    milliseconds: int = Field(default=1000, ge=0, le=60000)
+    milliseconds: int | None = Field(default=None, ge=1, le=60000)
+    selector: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @model_validator(mode="after")
+    def validate_wait_target(self):
+        if self.milliseconds is None and self.selector is None:
+            self.milliseconds = 1000
+        if self.milliseconds is not None and self.selector is not None:
+            raise ValueError("wait accepts milliseconds or selector, not both")
+        return self
 
 
 class ScreenshotViewport(BaseModel):
@@ -36,7 +45,7 @@ class ScreenshotAction(BaseModel):
 
 class ExecuteJavascriptAction(BaseModel):
     type: Literal["executeJavascript"]
-    script: str
+    script: str = Field(min_length=1, max_length=131072)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -48,7 +57,47 @@ class GetCookiesAction(BaseModel):
     type: Literal["getCookies"]
 
 
-Action = WaitAction | ScreenshotAction | ExecuteJavascriptAction | ScrapeAction | GetCookiesAction
+class ClickAction(BaseModel):
+    type: Literal["click"]
+    selector: str = Field(min_length=1, max_length=4096)
+    all: bool = False
+
+
+class WriteAction(BaseModel):
+    type: Literal["write"]
+    text: str = Field(max_length=131072)
+
+
+class PressAction(BaseModel):
+    type: Literal["press"]
+    key: str = Field(min_length=1, max_length=128)
+
+
+class ScrollAction(BaseModel):
+    type: Literal["scroll"]
+    direction: Literal["up", "down"] = "down"
+    selector: str | None = Field(default=None, min_length=1, max_length=4096)
+
+
+class PdfAction(BaseModel):
+    type: Literal["pdf"]
+    landscape: bool = False
+    print_background: bool = Field(default=True, alias="printBackground")
+    format: Literal["Letter", "Legal", "Tabloid", "A0", "A1", "A2", "A3", "A4", "A5"] = "A4"
+
+
+Action = (
+    WaitAction
+    | ScreenshotAction
+    | ExecuteJavascriptAction
+    | ScrapeAction
+    | GetCookiesAction
+    | ClickAction
+    | WriteAction
+    | PressAction
+    | ScrollAction
+    | PdfAction
+)
 
 
 class BeeEngineScrapeRequest(BaseModel):
@@ -57,7 +106,7 @@ class BeeEngineScrapeRequest(BaseModel):
     engine: Literal["playwright", "chrome-cdp"] = "playwright"
     instant_return: bool = Field(default=False, alias="instantReturn")
     headers: dict[str, str] = Field(default_factory=dict)
-    actions: list[Action] = Field(default_factory=list)
+    actions: list[Action] = Field(default_factory=list, max_length=50)
     timeout: int = Field(default=300000, ge=1000, le=300000)
     wait: int = Field(default=0, ge=0, le=60000)
     mobile: bool = False
@@ -65,6 +114,19 @@ class BeeEngineScrapeRequest(BaseModel):
     geolocation: Geolocation | None = None
     skip_tls_verification: bool = Field(default=False, alias="skipTlsVerification")
     proxy: ProxySettings | None = None
+
+    @model_validator(mode="after")
+    def validate_action_budget(self):
+        payload_size = sum(
+            len(getattr(action, "script", "")) + len(getattr(action, "text", ""))
+            for action in self.actions
+        )
+        if payload_size > 262144:
+            raise ValueError("action script and text payloads exceed 262144 characters")
+        wait_ms = sum(getattr(action, "milliseconds", 0) or 0 for action in self.actions)
+        if wait_ms + self.wait > self.timeout:
+            raise ValueError("action waits exceed the request timeout")
+        return self
 
 
 class FingerprintFetchRequest(BaseModel):

@@ -117,6 +117,15 @@ rolls failed renders over to the next instance. Health responses also expose
 the instance ID, active and available pages, job counts, engine availability,
 and service version.
 
+`POST /v2/scrape` accepts ordered browser `actions`: duration or selector
+`wait`, `click`, `write`, `press`, `scroll`, `screenshot`, `scrape`,
+`executeJavascript`, and `pdf`. Action responses contain Firecrawl-compatible
+grouped `screenshots`, `scrapes`, and `javascriptReturns`, plus `pdfs` and an
+ordered `results` array. Actions always use Bee Engine and bypass the scrape
+cache. Requests are limited to 50 actions, a 300-second total timeout, 256 KiB
+of script/text payload, 4 KiB selectors, and cumulative waits within the
+request timeout.
+
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
 

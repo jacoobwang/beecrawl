@@ -25,6 +25,8 @@ pub struct WebExtractScrapeRequest {
     pub screenshot: Option<ScreenshotOptions>,
     #[serde(skip)]
     pub content: Option<ContentOptions>,
+    #[serde(skip)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -51,10 +53,65 @@ pub struct ScreenshotOptions {
     pub viewport: Option<ScreenshotViewport>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct ScreenshotViewport {
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum BrowserAction {
+    #[serde(rename = "wait")]
+    Wait {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        milliseconds: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+    #[serde(rename = "screenshot")]
+    Screenshot {
+        #[serde(rename = "fullPage", default)]
+        full_page: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quality: Option<u8>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        viewport: Option<ScreenshotViewport>,
+    },
+    #[serde(rename = "click")]
+    Click {
+        selector: String,
+        #[serde(default)]
+        all: bool,
+    },
+    #[serde(rename = "write")]
+    Write { text: String },
+    #[serde(rename = "press")]
+    Press { key: String },
+    #[serde(rename = "scroll")]
+    Scroll {
+        #[serde(default = "default_scroll_direction")]
+        direction: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+    #[serde(rename = "scrape")]
+    Scrape,
+    #[serde(rename = "executeJavascript")]
+    ExecuteJavascript { script: String },
+    #[serde(rename = "pdf")]
+    Pdf {
+        #[serde(default)]
+        landscape: bool,
+        #[serde(rename = "printBackground", default = "default_true")]
+        print_background: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        format: Option<String>,
+    },
+}
+
+fn default_scroll_direction() -> String {
+    "down".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -104,6 +161,8 @@ pub struct FirecrawlV2ScrapeRequest {
     #[serde(default)]
     pub headers: HashMap<String, String>,
     pub proxy: Option<String>,
+    #[serde(default)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +306,8 @@ pub struct FirecrawlV2ScrapeOptions {
     #[serde(default)]
     pub headers: HashMap<String, String>,
     pub proxy: Option<String>,
+    #[serde(default)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +433,8 @@ pub struct WebExtractScrapeResponse {
     pub links: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screenshot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Value>,
     pub metadata: WebExtractMetadata,
 }
 
@@ -493,6 +556,8 @@ pub struct CrawlRequest {
     pub skip_tls_verification: bool,
     #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
     pub max_retries: usize,
+    #[serde(default)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -514,6 +579,8 @@ pub struct BatchScrapeRequest {
     pub skip_tls_verification: bool,
     #[serde(rename = "maxRetries", default = "default_crawl_max_retries")]
     pub max_retries: usize,
+    #[serde(default)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Serialize)]
@@ -678,6 +745,8 @@ pub struct SearchScrapeOptions {
     pub proxy: Option<ProxyConfig>,
     #[serde(skip)]
     pub content: Option<ContentOptions>,
+    #[serde(skip)]
+    pub actions: Vec<BrowserAction>,
 }
 
 #[derive(Debug, Serialize)]
@@ -777,6 +846,7 @@ pub struct ProviderPage {
     pub engine_outcomes: Vec<EngineOutcome>,
     pub fallback_reason: Option<String>,
     pub proxy_used: bool,
+    pub actions: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -793,6 +863,10 @@ pub struct BeeEngineScrapeResponse {
     pub response_headers: HashMap<String, String>,
     #[serde(default)]
     pub screenshots: Vec<String>,
+    #[serde(rename = "actionContent", default)]
+    pub action_content: Vec<Value>,
+    #[serde(rename = "actionResults", default)]
+    pub action_results: Vec<Value>,
 }
 
 fn default_formats() -> Vec<String> {
