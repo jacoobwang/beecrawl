@@ -76,7 +76,7 @@ pub async fn scrape_with_cache(
         .formats
         .iter()
         .any(|format| format.eq_ignore_ascii_case("screenshot"));
-    let (mut page, markdown, markdown_meta, from_cache) =
+    let (mut page, _initial_markdown, _initial_meta, from_cache) =
         if let Some(page) = cache.get(&key, max_age_seconds, requires_screenshot).await {
             let (page, markdown, metadata) = page_to_markdown(page);
             (page, markdown, metadata, true)
@@ -84,6 +84,9 @@ pub async fn scrape_with_cache(
             let (page, markdown, metadata) = scrape_page(client, &request).await?;
             (page, markdown, metadata, false)
         };
+    let configured_html = configured_content_html(&page.html, request.content.as_ref())?;
+    let (markdown, markdown_meta) =
+        extract_configured_markdown(&page.html, &configured_html, &page.final_url);
     if markdown.trim().is_empty() {
         return Err(WebExtractError::EmptyContent);
     }
@@ -109,7 +112,7 @@ pub async fn scrape_with_cache(
         .formats
         .iter()
         .any(|format| format.eq_ignore_ascii_case("html"))
-        .then(|| extract_content_html(&page.html));
+        .then(|| configured_html.clone());
     let raw_html = request
         .formats
         .iter()
@@ -121,7 +124,7 @@ pub async fn scrape_with_cache(
         .formats
         .iter()
         .any(|format| format.eq_ignore_ascii_case("links"))
-        .then(|| extract_links(&page.html, &page.final_url));
+        .then(|| extract_links(&configured_html, &page.final_url));
     let screenshot = page.screenshot.map(|image| {
         if image.starts_with("data:") {
             image
@@ -429,6 +432,73 @@ pub fn extract_markdown(html: &str, base_url: &str) -> (String, HashMap<String, 
 pub fn extract_content_html(html: &str) -> String {
     let document = Html::parse_document(html);
     select_root_html(&document).unwrap_or_else(|| html.to_string())
+}
+
+fn configured_content_html(
+    html: &str,
+    options: Option<&crate::models::ContentOptions>,
+) -> Result<String, WebExtractError> {
+    let Some(options) = options else {
+        return Ok(extract_content_html(html));
+    };
+    let document = Html::parse_document(html);
+    let mut selected = if !options.include_tags.is_empty() {
+        let mut fragments = Vec::new();
+        for raw_selector in &options.include_tags {
+            let selector = Selector::parse(raw_selector).map_err(|_| {
+                WebExtractError::InvalidUrl(format!("invalid includeTags selector: {raw_selector}"))
+            })?;
+            fragments.extend(document.select(&selector).map(|node| node.html()));
+        }
+        fragments.join("\n")
+    } else if options.only_main_content {
+        select_root_html(&document).unwrap_or_else(|| html.to_string())
+    } else {
+        let body = Selector::parse("body").expect("valid body selector");
+        document
+            .select(&body)
+            .next()
+            .map(|node| node.html())
+            .unwrap_or_else(|| document.html())
+    };
+
+    let mut exclusions = options.exclude_tags.clone();
+    if options.only_clean_content {
+        exclusions.extend(
+            ["nav", "header", "footer", "aside", "form", "dialog"]
+                .into_iter()
+                .map(str::to_string),
+        );
+    }
+    for raw_selector in exclusions {
+        let selector = Selector::parse(&raw_selector).map_err(|_| {
+            WebExtractError::InvalidUrl(format!("invalid excludeTags selector: {raw_selector}"))
+        })?;
+        let fragment = Html::parse_fragment(&selected);
+        let removals = fragment
+            .select(&selector)
+            .map(|node| node.html())
+            .collect::<Vec<_>>();
+        for removal in removals {
+            selected = selected.replace(&removal, "");
+        }
+    }
+    Ok(selected)
+}
+
+fn extract_configured_markdown(
+    original_html: &str,
+    configured_html: &str,
+    base_url: &str,
+) -> (String, HashMap<String, Option<String>>) {
+    let (_, metadata) = extract_markdown(original_html, base_url);
+    let (mut markdown, _) = extract_markdown(configured_html, base_url);
+    if let Some(title) = metadata.get("title").cloned().flatten() {
+        if !title.is_empty() && !markdown.trim_start().starts_with(&format!("# {title}")) {
+            markdown = format!("# {title}\n\n{}", markdown.trim());
+        }
+    }
+    (collapse_blank_lines(&markdown), metadata)
 }
 
 pub fn extract_links(html: &str, base_url: &str) -> Vec<String> {
@@ -1080,6 +1150,46 @@ mod tests {
             "value".to_string()
         )]))
         .is_err());
+    }
+
+    #[test]
+    fn content_options_select_and_clean_html() {
+        let html = r#"<html><head><title>Example</title></head><body>
+            <header>Navigation</header>
+            <main><section class="keep"><p>Keep me</p><span class="remove">Remove me</span></section></main>
+            <footer>Footer</footer>
+        </body></html>"#;
+        let selected = configured_content_html(
+            html,
+            Some(&crate::models::ContentOptions {
+                only_main_content: false,
+                only_clean_content: true,
+                include_tags: vec![".keep".to_string()],
+                exclude_tags: vec![".remove".to_string()],
+            }),
+        )
+        .unwrap();
+        assert!(selected.contains("Keep me"));
+        assert!(!selected.contains("Remove me"));
+        assert!(!selected.contains("Navigation"));
+    }
+
+    #[test]
+    fn only_main_content_false_keeps_page_chrome() {
+        let html =
+            r#"<html><body><header>Navigation</header><main><p>Article</p></main></body></html>"#;
+        let selected = configured_content_html(
+            html,
+            Some(&crate::models::ContentOptions {
+                only_main_content: false,
+                only_clean_content: false,
+                include_tags: Vec::new(),
+                exclude_tags: Vec::new(),
+            }),
+        )
+        .unwrap();
+        assert!(selected.contains("Navigation"));
+        assert!(selected.contains("Article"));
     }
 
     #[test]

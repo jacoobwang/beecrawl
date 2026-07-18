@@ -12,9 +12,9 @@ use serde_json::json;
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
-    BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
-    CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlFormat, FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest,
+    BatchScrapeEnqueueResponse, BatchScrapeRequest, ContentOptions, CrawlEnqueueResponse,
+    CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest,
+    ExtractResponse, FirecrawlFormat, FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest,
     FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2MapRequest,
     FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
     ScrapeResponse, ScreenshotOptions, ScreenshotViewport, SearchRequest, SearchScrapeOptions,
@@ -199,6 +199,7 @@ async fn run_extract(
             skip_tls_verification: false,
             headers: HashMap::new(),
             screenshot: None,
+            content: None,
         },
     )
     .await?;
@@ -270,6 +271,12 @@ async fn firecrawl_v2_scrape(
     )?;
     let requested_formats = request.formats;
     let screenshot = firecrawl_screenshot_options(&requested_formats)?;
+    let content = ContentOptions {
+        only_main_content: request.only_main_content.unwrap_or(true),
+        only_clean_content: request.only_clean_content,
+        include_tags: request.include_tags,
+        exclude_tags: request.exclude_tags,
+    };
     let mut fetch_formats = firecrawl_format_names(&requested_formats);
     let requested_raw_html = fetch_formats.iter().any(|format| format == "rawHtml");
     if requested_formats
@@ -293,6 +300,7 @@ async fn firecrawl_v2_scrape(
             skip_tls_verification: request.skip_tls_verification.unwrap_or(false),
             headers: request.headers,
             screenshot,
+            content: Some(content),
         },
     )
     .await?;
@@ -644,6 +652,7 @@ async fn firecrawl_v2_extract(
                     skip_tls_verification: false,
                     headers: HashMap::new(),
                     screenshot: None,
+                    content: None,
                 },
             )
             .await?,
@@ -766,6 +775,12 @@ async fn firecrawl_v2_search(
                 use_browser: "auto".to_string(),
                 skip_tls_verification: options.skip_tls_verification.unwrap_or(false),
                 headers: options.headers,
+                content: Some(ContentOptions {
+                    only_main_content: options.only_main_content.unwrap_or(true),
+                    only_clean_content: options.only_clean_content,
+                    include_tags: options.include_tags,
+                    exclude_tags: options.exclude_tags,
+                }),
             }),
         },
     )
@@ -794,7 +809,7 @@ fn firecrawl_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<Json<T>,
 
 #[allow(clippy::too_many_arguments)]
 fn validate_firecrawl_scrape_options(
-    only_main_content: Option<bool>,
+    _only_main_content: Option<bool>,
     remove_base64_images: Option<bool>,
     fast_mode: Option<bool>,
     block_ads: Option<bool>,
@@ -803,7 +818,6 @@ fn validate_firecrawl_scrape_options(
     mobile: Option<bool>,
 ) -> Result<(), ApiError> {
     let unsupported = [
-        (only_main_content == Some(false), "onlyMainContent=false"),
         (
             remove_base64_images == Some(false),
             "removeBase64Images=false",

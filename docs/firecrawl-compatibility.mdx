@@ -41,7 +41,9 @@ match BeeCrawl's behavior. Unsupported behavior-changing values, including
 `mobile=true` and `fastMode=true`, are also rejected explicitly.
 `skipTlsVerification` is supported for direct scrape, search scraping, and
 crawl jobs. Caller-supplied `headers` are forwarded by direct scrape and search
-scraping and are included in the cache key.
+scraping and are included in the cache key. `includeTags`, `excludeTags`,
+`onlyMainContent`, and `onlyCleanContent` are applied when deriving Markdown,
+content HTML, and links from either a fresh or cached raw HTML snapshot.
 
 Map returns the current link-object shape and uses Firecrawl's current defaults
 (`limit=5000`, `includeSubdomains=true`). Crawl defaults to `limit=10000`, does

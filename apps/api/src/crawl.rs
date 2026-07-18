@@ -502,6 +502,7 @@ async fn process_task(
             skip_tls_verification: options.skip_tls_verification,
             headers: std::collections::HashMap::new(),
             screenshot: None,
+            content: None,
         },
     )
     .await;

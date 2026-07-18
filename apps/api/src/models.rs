@@ -21,6 +21,16 @@ pub struct WebExtractScrapeRequest {
     pub headers: HashMap<String, String>,
     #[serde(skip)]
     pub screenshot: Option<ScreenshotOptions>,
+    #[serde(skip)]
+    pub content: Option<ContentOptions>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContentOptions {
+    pub only_main_content: bool,
+    pub only_clean_content: bool,
+    pub include_tags: Vec<String>,
+    pub exclude_tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +72,12 @@ pub struct FirecrawlV2ScrapeRequest {
     pub wait_for_ms: u64,
     #[serde(rename = "onlyMainContent")]
     pub only_main_content: Option<bool>,
+    #[serde(rename = "onlyCleanContent", default)]
+    pub only_clean_content: bool,
+    #[serde(rename = "includeTags", default)]
+    pub include_tags: Vec<String>,
+    #[serde(rename = "excludeTags", default)]
+    pub exclude_tags: Vec<String>,
     #[serde(rename = "skipTlsVerification")]
     pub skip_tls_verification: Option<bool>,
     #[serde(rename = "removeBase64Images")]
@@ -183,6 +199,12 @@ pub struct FirecrawlV2ScrapeOptions {
     pub wait_for_ms: u64,
     #[serde(rename = "onlyMainContent")]
     pub only_main_content: Option<bool>,
+    #[serde(rename = "onlyCleanContent", default)]
+    pub only_clean_content: bool,
+    #[serde(rename = "includeTags", default)]
+    pub include_tags: Vec<String>,
+    #[serde(rename = "excludeTags", default)]
+    pub exclude_tags: Vec<String>,
     #[serde(rename = "skipTlsVerification")]
     pub skip_tls_verification: Option<bool>,
     #[serde(rename = "removeBase64Images")]
@@ -524,6 +546,8 @@ pub struct SearchScrapeOptions {
     pub skip_tls_verification: bool,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    #[serde(skip)]
+    pub content: Option<ContentOptions>,
 }
 
 #[derive(Debug, Serialize)]

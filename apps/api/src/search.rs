@@ -88,6 +88,7 @@ pub async fn search(
                     skip_tls_verification: options.skip_tls_verification,
                     headers: options.headers.clone(),
                     screenshot: None,
+                    content: options.content.clone(),
                 },
             )
             .await
