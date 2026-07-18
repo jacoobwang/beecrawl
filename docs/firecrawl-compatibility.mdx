@@ -68,6 +68,11 @@ and `allowExternalLinks` expand that scope in that order.
 `delay` spaces task starts by the requested number of seconds (up to 60), and
 `maxConcurrency` caps active task leases per crawl or batch job. Both limits are
 enforced atomically by the shared PostgreSQL queue across worker processes.
+Query parameters participate in crawl identity unless
+`ignoreQueryParameters=true`; hash-router fragments are retained while ordinary
+anchors are removed. `deduplicateSimilarURLs=true` additionally coalesces
+http/https, www, trailing-slash, and index-document aliases through a
+database-enforced per-job key.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

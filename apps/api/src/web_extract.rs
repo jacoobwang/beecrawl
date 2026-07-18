@@ -834,7 +834,12 @@ fn canonicalize_link(link: &str, ignore_query_parameters: bool) -> Option<String
     if !matches!(parsed.scheme(), "http" | "https") {
         return None;
     }
-    parsed.set_fragment(None);
+    let keep_hash_route = parsed
+        .fragment()
+        .is_some_and(|fragment| fragment.starts_with('/') || fragment.starts_with("!/"));
+    if !keep_hash_route {
+        parsed.set_fragment(None);
+    }
     if ignore_query_parameters {
         parsed.set_query(None);
     }
@@ -1264,6 +1269,18 @@ mod tests {
         let links = extract_links(html, "https://example.com/start");
 
         assert_eq!(links, vec!["https://example.com/docs".to_string()]);
+    }
+
+    #[test]
+    fn link_canonicalization_respects_query_and_hash_route_policy() {
+        assert_eq!(
+            canonicalize_link("https://example.com/a?x=1#section", false).unwrap(),
+            "https://example.com/a?x=1"
+        );
+        assert_eq!(
+            canonicalize_link("https://example.com/a?x=1#/route", true).unwrap(),
+            "https://example.com/a#/route"
+        );
     }
 
     #[test]

@@ -431,6 +431,8 @@ pub struct CrawlRequest {
     pub delay_ms: u64,
     #[serde(rename = "maxConcurrency", default = "default_job_max_concurrency")]
     pub max_concurrency: usize,
+    #[serde(rename = "deduplicateSimilarURLs", default = "default_true")]
+    pub deduplicate_similar_urls: bool,
     #[serde(
         rename = "ignoreQueryParameters",
         default = "default_ignore_query_parameters"
@@ -805,6 +807,10 @@ fn default_crawl_max_retries() -> usize {
 
 fn default_job_max_concurrency() -> usize {
     10
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_crawl_status_limit() -> usize {

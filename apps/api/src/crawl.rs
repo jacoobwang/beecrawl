@@ -105,7 +105,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, now() + make_interval(days => $22))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now() + make_interval(days => $23))",
         )
         .bind(id)
         .bind(&url)
@@ -120,6 +120,7 @@ impl CrawlStore {
         .bind(&request.sitemap)
         .bind(request.delay_ms as i64)
         .bind(request.max_concurrency as i32)
+        .bind(request.deduplicate_similar_urls)
         .bind(request.ignore_query_parameters)
         .bind(request.ignore_robots_txt)
         .bind(&request.robots_user_agent)
@@ -131,10 +132,11 @@ impl CrawlStore {
         .bind(crawl_retention_days())
         .execute(&mut *transaction)
         .await?;
-        sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status) VALUES ($1, $2, $3, 0, 'queued')")
+        sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, dedup_key, depth, status) VALUES ($1, $2, $3, $4, 0, 'queued')")
             .bind(Uuid::new_v4())
             .bind(id)
             .bind(&url)
+            .bind(crawl_dedup_key(&url, request.deduplicate_similar_urls))
             .execute(&mut *transaction)
             .await?;
         transaction.commit().await?;
@@ -192,7 +194,7 @@ impl CrawlStore {
         .execute(&mut *transaction)
         .await?;
         for url in &urls {
-            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status) VALUES ($1, $2, $3, 0, 'queued')")
+            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, dedup_key, depth, status) VALUES ($1, $2, $3, $3, 0, 'queued')")
                 .bind(Uuid::new_v4())
                 .bind(id)
                 .bind(url)
@@ -416,11 +418,12 @@ impl CrawlStore {
     ) -> Result<(), CrawlStoreError> {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
-        let job = sqlx::query("SELECT cancel_requested FROM crawl_jobs WHERE id = $1 FOR UPDATE")
+        let job = sqlx::query("SELECT cancel_requested, deduplicate_similar_urls FROM crawl_jobs WHERE id = $1 FOR UPDATE")
             .bind(task.crawl_id)
             .fetch_one(&mut *transaction)
             .await?;
         let cancel_requested: bool = job.try_get("cancel_requested")?;
+        let deduplicate_similar_urls: bool = job.try_get("deduplicate_similar_urls")?;
         let updated = sqlx::query("UPDATE crawl_tasks SET status = 'completed', result = $1, lease_expires_at = NULL, finished_at = now() WHERE id = $2 AND lease_token = $3 AND status = 'active'")
             .bind(serde_json::to_value(page).expect("scrape response serializes"))
             .bind(task.id)
@@ -433,10 +436,12 @@ impl CrawlStore {
         }
         if !cancel_requested {
             for link in links {
-                sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status) SELECT $1, $2, $3, $4, 'queued' WHERE (SELECT COUNT(*) FROM crawl_tasks WHERE crawl_id = $2) < (SELECT page_limit FROM crawl_jobs WHERE id = $2) ON CONFLICT (crawl_id, url) DO NOTHING")
+                let dedup_key = crawl_dedup_key(&link, deduplicate_similar_urls);
+                sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, dedup_key, depth, status) SELECT $1, $2, $3, $4, $5, 'queued' WHERE (SELECT COUNT(*) FROM crawl_tasks WHERE crawl_id = $2) < (SELECT page_limit FROM crawl_jobs WHERE id = $2) ON CONFLICT DO NOTHING")
                     .bind(Uuid::new_v4())
                     .bind(task.crawl_id)
                     .bind(link)
+                    .bind(dedup_key)
                     .bind((task.depth + 1) as i32)
                     .execute(&mut *transaction)
                     .await?;
@@ -676,6 +681,33 @@ fn url_allowed_by_patterns(
         && (include_paths.is_empty() || include_paths.iter().any(matches))
 }
 
+fn crawl_dedup_key(raw_url: &str, deduplicate_similar_urls: bool) -> String {
+    if !deduplicate_similar_urls {
+        return raw_url.to_string();
+    }
+    let Ok(mut url) = url::Url::parse(raw_url) else {
+        return raw_url.to_string();
+    };
+    if let Some(host) = url.host_str().map(str::to_string) {
+        let normalized = host.strip_prefix("www.").unwrap_or(&host);
+        let _ = url.set_host(Some(normalized));
+    }
+    let mut path = url.path().to_string();
+    for suffix in ["/index.html", "/index.php"] {
+        if path.ends_with(suffix) {
+            path.truncate(path.len() - suffix.len());
+            path.push('/');
+            break;
+        }
+    }
+    if path.len() > 1 {
+        path = path.trim_end_matches('/').to_string();
+    }
+    url.set_path(&path);
+    url.set_scheme("http").ok();
+    url.to_string()
+}
+
 async fn complete_if_drained(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     crawl_id: Uuid,
@@ -765,6 +797,7 @@ mod tests {
             sitemap: "include".to_string(),
             delay_ms: 0,
             max_concurrency: 10,
+            deduplicate_similar_urls: true,
             ignore_query_parameters: true,
             ignore_robots_txt: false,
             robots_user_agent: None,
@@ -818,7 +851,7 @@ mod tests {
             .unwrap();
         for suffix in ["one", "two"] {
             let url = format!("https://example.com/{suffix}");
-            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, depth, status, result, finished_at) VALUES ($1, $2, $3, 1, 'completed', $4, now())")
+            sqlx::query("INSERT INTO crawl_tasks (id, crawl_id, url, dedup_key, depth, status, result, finished_at) VALUES ($1, $2, $3, $3, 1, 'completed', $4, now())")
                 .bind(Uuid::new_v4())
                 .bind(crawl_id)
                 .bind(&url)
@@ -1054,5 +1087,28 @@ mod tests {
             true,
         ));
         assert!(validate_path_patterns(&["[".to_string()], "includePaths").is_err());
+    }
+
+    #[test]
+    fn similar_url_keys_merge_common_page_aliases_but_keep_queries() {
+        let aliases = [
+            "https://example.com/docs/",
+            "http://www.example.com/docs",
+            "https://example.com/docs/index.html",
+            "http://example.com/docs/index.php",
+        ];
+        let keys = aliases
+            .map(|url| crawl_dedup_key(url, true))
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(keys.len(), 1);
+        assert_ne!(
+            crawl_dedup_key("https://example.com/docs?a=1", true),
+            crawl_dedup_key("https://example.com/docs?a=2", true)
+        );
+        assert_ne!(
+            crawl_dedup_key("https://example.com/docs/", false),
+            crawl_dedup_key("http://example.com/docs", false)
+        );
     }
 }

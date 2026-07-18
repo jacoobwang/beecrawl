@@ -510,6 +510,7 @@ async fn firecrawl_v2_crawl(
             sitemap: request.sitemap,
             delay_ms,
             max_concurrency,
+            deduplicate_similar_urls: request.deduplicate_similar_urls.unwrap_or(true),
             ignore_query_parameters: request.ignore_query_parameters,
             ignore_robots_txt: request.ignore_robots_txt.unwrap_or(false),
             robots_user_agent: request.robots_user_agent,
@@ -865,16 +866,10 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
             "sitemap must be one of skip, include, or only".to_string(),
         ));
     }
-    let unsupported = [
-        (
-            request.deduplicate_similar_urls == Some(false),
-            "deduplicateSimilarURLs=false",
-        ),
-        (
-            request.zero_data_retention == Some(true),
-            "zeroDataRetention=true",
-        ),
-    ]
+    let unsupported = [(
+        request.zero_data_retention == Some(true),
+        "zeroDataRetention=true",
+    )]
     .into_iter()
     .filter_map(|(is_unsupported, name)| is_unsupported.then_some(name))
     .collect::<Vec<_>>();
@@ -1666,6 +1661,7 @@ mod tests {
         assert_eq!(crawl.crawl_entire_domain, None);
         assert_eq!(crawl.delay, None);
         assert_eq!(crawl.max_concurrency, None);
+        assert_eq!(crawl.deduplicate_similar_urls, None);
 
         assert_eq!(firecrawl_delay_ms(Some(0.25)).unwrap(), 250);
         assert_eq!(firecrawl_max_concurrency(Some(3)).unwrap(), 3);
