@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::rejection::JsonRejection;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -588,8 +589,19 @@ async fn firecrawl_v2_crawl_status(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
     Query(query): Query<CrawlStatusQuery>,
+    websocket: Option<WebSocketUpgrade>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    if let Some(websocket) = websocket {
+        state
+            .crawls
+            .get(&id, CrawlStatusQuery::default())
+            .await?
+            .ok_or(ApiError::NotFound)?;
+        return Ok(websocket
+            .on_upgrade(move |socket| watch_firecrawl_job(socket, state, id, "crawl"))
+            .into_response());
+    }
     let response = state
         .crawls
         .get(&id, query)
@@ -603,14 +615,140 @@ async fn firecrawl_v2_batch_scrape_status(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
     Query(query): Query<CrawlStatusQuery>,
+    websocket: Option<WebSocketUpgrade>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
+    if let Some(websocket) = websocket {
+        state
+            .crawls
+            .get(&id, CrawlStatusQuery::default())
+            .await?
+            .ok_or(ApiError::NotFound)?;
+        return Ok(websocket
+            .on_upgrade(move |socket| watch_firecrawl_job(socket, state, id, "batch/scrape"))
+            .into_response());
+    }
     let response = state
         .crawls
         .get(&id, query)
         .await?
         .ok_or(ApiError::NotFound)?;
     Ok(Json(firecrawl_crawl_status(response, "batch/scrape")).into_response())
+}
+
+async fn watch_firecrawl_job(
+    mut socket: WebSocket,
+    state: Arc<AppState>,
+    id: String,
+    resource: &'static str,
+) {
+    let mut sent = std::collections::HashSet::new();
+    let mut first = true;
+    loop {
+        let status = match firecrawl_complete_status(&state.crawls, &id).await {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                let _ = websocket_send(
+                    &mut socket,
+                    json!({
+                        "type": "error",
+                        "error": "Job not found"
+                    }),
+                )
+                .await;
+                break;
+            }
+            Err(error) => {
+                let _ = websocket_send(
+                    &mut socket,
+                    json!({
+                        "type": "error",
+                        "error": error.to_string()
+                    }),
+                )
+                .await;
+                break;
+            }
+        };
+        let terminal = matches!(status.status.as_str(), "completed" | "cancelled");
+        if first {
+            let catchup = firecrawl_crawl_status(status.clone(), resource);
+            if websocket_send(&mut socket, json!({ "type": "catchup", "data": catchup }))
+                .await
+                .is_err()
+            {
+                break;
+            }
+            sent.extend(status.data.iter().map(|page| page.request_id.clone()));
+            first = false;
+        } else {
+            for page in status.data {
+                if sent.insert(page.request_id.clone())
+                    && websocket_send(
+                        &mut socket,
+                        json!({ "type": "document", "data": firecrawl_document(page) }),
+                    )
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+        if terminal {
+            let _ = websocket_send(&mut socket, json!({ "type": "done" })).await;
+            let _ = socket.close().await;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+}
+
+async fn websocket_send(socket: &mut WebSocket, payload: serde_json::Value) -> Result<(), ()> {
+    socket
+        .send(Message::Text(payload.to_string()))
+        .await
+        .map_err(|_| ())
+}
+
+async fn firecrawl_complete_status(
+    store: &CrawlStore,
+    id: &str,
+) -> Result<Option<CrawlStatusResponse>, CrawlStoreError> {
+    let Some(mut status) = store
+        .get(
+            id,
+            CrawlStatusQuery {
+                offset: 0,
+                limit: 100,
+            },
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let mut offset = status.pagination.next;
+    while let Some(next) = offset {
+        let Some(page) = store
+            .get(
+                id,
+                CrawlStatusQuery {
+                    offset: next,
+                    limit: 100,
+                },
+            )
+            .await?
+        else {
+            break;
+        };
+        status.data.extend(page.data);
+        status.errors.extend(page.errors);
+        offset = page.pagination.next;
+    }
+    status.pagination.next = None;
+    status.pagination.offset = 0;
+    status.pagination.limit = status.data.len() + status.errors.len();
+    Ok(Some(status))
 }
 
 async fn firecrawl_v2_job_errors(
@@ -1465,6 +1603,12 @@ fn require_auth(headers: &HeaderMap) -> Result<(), ApiError> {
                 .get("authorization")
                 .and_then(|value| value.to_str().ok())
                 .and_then(|value| value.strip_prefix("Bearer "))
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            headers
+                .get("sec-websocket-protocol")
+                .and_then(|value| value.to_str().ok())
                 .map(str::to_string)
         });
     if supplied.as_deref() == Some(api_key.as_str()) {

@@ -43,7 +43,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Add similar-URL deduplication and query-parameter policy parity.
 - [x] Add idempotency keys.
 - [x] Add signed webhooks for crawl and batch lifecycle events.
-- [ ] Add WebSocket job progress and document events.
+- [x] Add WebSocket job progress and document events.
 
 ## 5. Fetch success rate and engine selection
 

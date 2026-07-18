@@ -82,6 +82,10 @@ Set `BEECRAWL_WEBHOOK_HMAC_SECRET`; every JSON request is signed as
 `X-Firecrawl-Signature: sha256=<HMAC-SHA256>` and custom metadata and headers
 are preserved. Event claims are persisted so distributed workers do not emit
 duplicate lifecycle callbacks.
+The crawl and batch status URLs also accept WebSocket upgrades used by the
+official watcher clients. A socket receives an initial `catchup` status, a
+`document` message for each newly completed page, and a terminal `done`
+message. Large catchups are assembled across all database result pages.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
