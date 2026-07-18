@@ -356,6 +356,53 @@ pub struct FirecrawlV2SearchRequest {
     pub sources: Vec<FirecrawlV2Source>,
     #[serde(rename = "scrapeOptions", default)]
     pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
+    #[serde(default)]
+    pub categories: Vec<FirecrawlV2Category>,
+    #[serde(rename = "includeDomains", default)]
+    pub include_domains: Vec<String>,
+    #[serde(rename = "excludeDomains", default)]
+    pub exclude_domains: Vec<String>,
+    #[serde(default = "default_lang")]
+    pub lang: String,
+    pub country: Option<String>,
+    pub location: Option<String>,
+    pub tbs: Option<String>,
+    pub filter: Option<String>,
+    #[serde(rename = "asyncScraping", default)]
+    pub async_scraping: bool,
+    #[serde(default)]
+    pub highlights: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum FirecrawlV2Category {
+    Name(String),
+    Config(FirecrawlV2CategoryConfig),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrawlV2CategoryConfig {
+    pub r#type: String,
+    #[serde(default)]
+    pub sites: Vec<String>,
+}
+
+impl FirecrawlV2Category {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Name(name) => name,
+            Self::Config(config) => &config.r#type,
+        }
+    }
+
+    pub fn sites(&self) -> &[String] {
+        match self {
+            Self::Name(_) => &[],
+            Self::Config(config) => &config.sites,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -369,6 +416,10 @@ pub enum FirecrawlV2Source {
 #[serde(deny_unknown_fields)]
 pub struct FirecrawlV2SourceConfig {
     pub r#type: String,
+    pub tbs: Option<String>,
+    pub lang: Option<String>,
+    pub country: Option<String>,
+    pub location: Option<String>,
 }
 
 impl FirecrawlV2Source {
@@ -725,6 +776,25 @@ pub struct SearchRequest {
     pub country: String,
     #[serde(rename = "scrapeOptions")]
     pub scrape_options: Option<SearchScrapeOptions>,
+    #[serde(default)]
+    pub categories: Vec<SearchCategory>,
+    #[serde(default)]
+    pub include_domains: Vec<String>,
+    #[serde(default)]
+    pub exclude_domains: Vec<String>,
+    pub tbs: Option<String>,
+    pub location: Option<String>,
+    pub filter: Option<String>,
+    #[serde(default)]
+    pub async_scraping: bool,
+    #[serde(default)]
+    pub highlights: bool,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct SearchCategory {
+    pub name: String,
+    pub sites: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -768,6 +838,8 @@ pub struct SearchResult {
     pub metadata: HashMap<String, Value>,
     #[serde(rename = "scrapeError")]
     pub scrape_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub highlights: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]

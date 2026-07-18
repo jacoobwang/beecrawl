@@ -1152,13 +1152,47 @@ async fn firecrawl_v2_search(
     let wants_news = requested_sources.contains(&"news");
     let wants_images = requested_sources.contains(&"images");
 
+    if !request.include_domains.is_empty() && !request.exclude_domains.is_empty() {
+        return Err(ApiError::InvalidRequest(
+            "includeDomains and excludeDomains cannot both be specified".to_string(),
+        ));
+    }
+    if request
+        .categories
+        .iter()
+        .any(|category| !matches!(category.name(), "github" | "research" | "pdf"))
+    {
+        return Err(ApiError::InvalidRequest(
+            "categories must be github, research, or pdf".to_string(),
+        ));
+    }
+    let country = request.country.clone().unwrap_or_else(|| "us".to_string());
+    let news = if wants_news {
+        search::search_news(
+            &state.client,
+            &request.query,
+            request.limit,
+            &request.lang,
+            &country,
+            request.tbs.as_deref(),
+        )
+        .await
+    } else {
+        vec![]
+    };
+    let images = if wants_images {
+        search::search_images(&state.client, &request.query, request.limit).await
+    } else {
+        vec![]
+    };
+
     if !wants_web {
         let mut data = serde_json::Map::new();
         if wants_news {
-            data.insert("news".to_string(), json!([]));
+            data.insert("news".to_string(), json!(news));
         }
         if wants_images {
-            data.insert("images".to_string(), json!([]));
+            data.insert("images".to_string(), json!(images));
         }
         return Ok(Json(json!({ "success": true, "data": data })).into_response());
     }
@@ -1181,14 +1215,30 @@ async fn firecrawl_v2_search(
         .map(|options| firecrawl_proxy(options.proxy.as_deref()))
         .transpose()?
         .flatten();
+    let categories = request
+        .categories
+        .iter()
+        .map(|category| crate::models::SearchCategory {
+            name: category.name().to_string(),
+            sites: category.sites().to_vec(),
+        })
+        .collect();
 
     let response = search::search(
         &state.client,
         SearchRequest {
             query: request.query,
             limit: request.limit,
-            lang: "en".to_string(),
-            country: "us".to_string(),
+            lang: request.lang,
+            country,
+            categories,
+            include_domains: request.include_domains,
+            exclude_domains: request.exclude_domains,
+            tbs: request.tbs,
+            location: request.location,
+            filter: request.filter,
+            async_scraping: request.async_scraping,
+            highlights: request.highlights,
             scrape_options: request.scrape_options.map(|options| SearchScrapeOptions {
                 formats: firecrawl_format_names(&options.formats),
                 timeout_seconds: options.timeout.div_ceil(1_000).max(1),
@@ -1218,10 +1268,10 @@ async fn firecrawl_v2_search(
     let mut data = serde_json::Map::new();
     data.insert("web".to_string(), json!(web));
     if wants_news {
-        data.insert("news".to_string(), json!([]));
+        data.insert("news".to_string(), json!(news));
     }
     if wants_images {
-        data.insert("images".to_string(), json!([]));
+        data.insert("images".to_string(), json!(images));
     }
     Ok(Json(json!({ "success": true, "data": data })).into_response())
 }
@@ -1901,11 +1951,13 @@ fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::V
             "title": result.title,
             "description": result.description,
             "markdown": markdown,
+            "highlights": result.highlights,
             "metadata": {
                 "title": result.title,
                 "description": result.description,
                 "sourceURL": result.url,
                 "url": result.metadata.get("final_url"),
+                "category": result.metadata.get("category"),
             }
         })
     } else {
@@ -1913,6 +1965,8 @@ fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::V
             "url": result.url,
             "title": result.title,
             "description": result.description,
+            "highlights": result.highlights,
+            "category": result.metadata.get("category"),
         })
     }
 }
@@ -2387,11 +2441,23 @@ mod tests {
         let request: FirecrawlV2SearchRequest = serde_json::from_value(json!({
             "query": "thermal insulation",
             "sources": ["web", { "type": "news" }],
+            "categories": ["github", { "type": "research", "sites": ["arxiv.org"] }, "pdf"],
+            "includeDomains": ["example.com"],
+            "lang": "de",
+            "country": "de",
+            "location": "Berlin",
+            "tbs": "qdr:w",
+            "asyncScraping": true,
+            "highlights": true,
             "scrapeOptions": { "formats": [{ "type": "markdown" }], "timeout": 45000 }
         }))
         .unwrap();
         assert_eq!(request.sources[0].name(), "web");
         assert_eq!(request.sources[1].name(), "news");
+        assert_eq!(request.categories[0].name(), "github");
+        assert_eq!(request.categories[1].sites(), ["arxiv.org"]);
+        assert_eq!(request.include_domains, ["example.com"]);
+        assert!(request.async_scraping && request.highlights);
         let scrape_options = request.scrape_options.unwrap();
         assert_eq!(
             firecrawl_format_names(&scrape_options.formats),
@@ -2736,6 +2802,7 @@ mod tests {
             markdown: Some("# Example".to_string()),
             metadata: HashMap::from([("final_url".to_string(), json!("https://www.example.com/"))]),
             scrape_error: None,
+            highlights: vec!["Example highlight".to_string()],
         });
         assert_eq!(result["markdown"], "# Example");
         assert_eq!(result["title"], "Example");

@@ -164,6 +164,15 @@ options to `POST /v2/parse/reference`. Upload references expire after 15
 minutes, are capped at 50 MB, and are consumed once. Multipart clients may
 also submit the reference as an `uploadRef` field to `/v2/parse`.
 
+Search supports `web`, `news`, and `images` sources. Web results can be
+restricted with GitHub, research, and PDF categories plus `includeDomains` or
+`excludeDomains`; `lang`, `country`, `location`, and `tbs` are forwarded to
+providers. Bing RSS and image search back the news and image sources, while
+web search uses configured SearXNG with DuckDuckGo fallback. Set
+`asyncScraping: true` to scrape up to eight results concurrently and
+`highlights: true` to return query-relevant passages from scraped content (or
+provider snippets when content is unavailable).
+
 Batch scrape uses the same Postgres-backed queue and worker as crawl. Crawl and
 batch status responses include `id`, `expiresAt`, and a `next` URL while more
 results are available. Error endpoints return terminal page errors separately.

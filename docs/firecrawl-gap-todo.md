@@ -73,11 +73,11 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 8. Search providers and filters
 
-- [ ] Add news and image search providers.
-- [ ] Add GitHub, research-paper, and PDF categories.
-- [ ] Add include/exclude domain filters.
-- [ ] Add time, language, country, and location controls.
-- [ ] Add asynchronous result scraping and query highlights.
+- [x] Add news and image search providers.
+- [x] Add GitHub, research-paper, and PDF categories.
+- [x] Add include/exclude domain filters.
+- [x] Add time, language, country, and location controls.
+- [x] Add asynchronous result scraping and query highlights.
 
 ## 9. Persistent browser sessions
 
