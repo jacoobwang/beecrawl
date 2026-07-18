@@ -158,6 +158,10 @@ pub struct FirecrawlV2CrawlRequest {
         default = "default_firecrawl_crawl_max_depth"
     )]
     pub max_discovery_depth: usize,
+    #[serde(rename = "includePaths", default)]
+    pub include_paths: Vec<String>,
+    #[serde(rename = "excludePaths", default)]
+    pub exclude_paths: Vec<String>,
     #[serde(rename = "allowSubdomains", default)]
     pub allow_subdomains: bool,
     #[serde(rename = "deduplicateSimilarURLs")]
@@ -396,6 +400,12 @@ pub struct CrawlRequest {
     pub limit: usize,
     #[serde(rename = "maxDepth", default = "default_crawl_max_depth")]
     pub max_depth: usize,
+    #[serde(rename = "includePaths", default)]
+    pub include_paths: Vec<String>,
+    #[serde(rename = "excludePaths", default)]
+    pub exclude_paths: Vec<String>,
+    #[serde(rename = "regexOnFullURL", default)]
+    pub regex_on_full_url: bool,
     #[serde(rename = "includeSubdomains", default)]
     pub include_subdomains: bool,
     #[serde(

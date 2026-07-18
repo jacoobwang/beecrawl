@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
@@ -93,16 +94,21 @@ impl CrawlStore {
         }
         let url = web_extract::normalize_url(&request.url)
             .map_err(|error| CrawlStoreError::InvalidRequest(error.to_string()))?;
+        validate_path_patterns(&request.include_paths, "includePaths")?;
+        validate_path_patterns(&request.exclude_paths, "excludePaths")?;
         let id = Uuid::new_v4();
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now() + make_interval(days => $14))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now() + make_interval(days => $17))",
         )
         .bind(id)
         .bind(&url)
         .bind(request.limit as i64)
         .bind(request.max_depth as i32)
+        .bind(serde_json::to_value(&request.include_paths).expect("patterns serialize"))
+        .bind(serde_json::to_value(&request.exclude_paths).expect("patterns serialize"))
+        .bind(request.regex_on_full_url)
         .bind(request.include_subdomains)
         .bind(request.ignore_query_parameters)
         .bind(request.ignore_robots_txt)
@@ -360,7 +366,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -368,6 +374,11 @@ impl CrawlStore {
             job_type: row.try_get("job_type")?,
             page_limit: row.try_get::<i64, _>("page_limit")? as usize,
             max_depth: row.try_get::<i32, _>("max_depth")? as usize,
+            include_paths: serde_json::from_value(row.try_get("include_paths")?)
+                .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?,
+            exclude_paths: serde_json::from_value(row.try_get("exclude_paths")?)
+                .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?,
+            regex_on_full_url: row.try_get("regex_on_full_url")?,
             include_subdomains: row.try_get("include_subdomains")?,
             ignore_query_parameters: row.try_get("ignore_query_parameters")?,
             ignore_robots_txt: row.try_get("ignore_robots_txt")?,
@@ -493,6 +504,21 @@ async fn process_task(
     if options.cancelled {
         return Ok(());
     }
+    if !url_allowed_by_patterns(
+        &task.url,
+        &options.include_paths,
+        &options.exclude_paths,
+        options.regex_on_full_url,
+    ) {
+        return store
+            .finish_failure(
+                &task,
+                WebExtractError::BlockedByPolicy(
+                    "URL is excluded by includePaths or excludePaths".to_string(),
+                ),
+            )
+            .await;
+    }
     if !options.ignore_robots_txt
         && !web_extract::robots_allows(
             client,
@@ -546,7 +572,20 @@ async fn process_task(
                     },
                 )
                 .await
-                .map(|response| response.links)
+                .map(|response| {
+                    response
+                        .links
+                        .into_iter()
+                        .filter(|url| {
+                            url_allowed_by_patterns(
+                                url,
+                                &options.include_paths,
+                                &options.exclude_paths,
+                                options.regex_on_full_url,
+                            )
+                        })
+                        .collect()
+                })
                 .unwrap_or_default()
             } else {
                 vec![]
@@ -570,6 +609,9 @@ struct CrawlOptions {
     job_type: String,
     page_limit: usize,
     max_depth: usize,
+    include_paths: Vec<String>,
+    exclude_paths: Vec<String>,
+    regex_on_full_url: bool,
     include_subdomains: bool,
     ignore_query_parameters: bool,
     ignore_robots_txt: bool,
@@ -579,6 +621,34 @@ struct CrawlOptions {
     use_browser: String,
     skip_tls_verification: bool,
     cancelled: bool,
+}
+
+fn validate_path_patterns(patterns: &[String], field: &str) -> Result<(), CrawlStoreError> {
+    for pattern in patterns {
+        Regex::new(pattern).map_err(|error| {
+            CrawlStoreError::InvalidRequest(format!("Invalid {field} regex '{pattern}': {error}"))
+        })?;
+    }
+    Ok(())
+}
+
+fn url_allowed_by_patterns(
+    raw_url: &str,
+    include_paths: &[String],
+    exclude_paths: &[String],
+    regex_on_full_url: bool,
+) -> bool {
+    let Ok(url) = url::Url::parse(raw_url) else {
+        return false;
+    };
+    let target = if regex_on_full_url {
+        raw_url
+    } else {
+        url.path()
+    };
+    let matches = |pattern: &String| Regex::new(pattern).is_ok_and(|regex| regex.is_match(target));
+    !exclude_paths.iter().any(matches)
+        && (include_paths.is_empty() || include_paths.iter().any(matches))
 }
 
 async fn complete_if_drained(
@@ -661,6 +731,9 @@ mod tests {
             url: "https://example.com".to_string(),
             limit: 10,
             max_depth: 0,
+            include_paths: Vec::new(),
+            exclude_paths: Vec::new(),
+            regex_on_full_url: false,
             include_subdomains: false,
             ignore_query_parameters: true,
             ignore_robots_txt: false,
@@ -864,5 +937,28 @@ mod tests {
             .unwrap()
             .is_none());
         reset(&store).await;
+    }
+
+    #[test]
+    fn crawl_path_filters_match_paths_or_full_urls() {
+        assert!(url_allowed_by_patterns(
+            "https://example.com/blog/post",
+            &["^/blog".to_string()],
+            &["draft$".to_string()],
+            false,
+        ));
+        assert!(!url_allowed_by_patterns(
+            "https://example.com/blog/draft",
+            &["^/blog".to_string()],
+            &["draft$".to_string()],
+            false,
+        ));
+        assert!(!url_allowed_by_patterns(
+            "https://other.example/blog/post",
+            &[r"^https://example\.com/".to_string()],
+            &[],
+            true,
+        ));
+        assert!(validate_path_patterns(&["[".to_string()], "includePaths").is_err());
     }
 }

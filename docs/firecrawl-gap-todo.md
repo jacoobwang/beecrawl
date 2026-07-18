@@ -37,7 +37,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 ## 4. Crawl policy and delivery
 
 - [x] Respect robots.txt by default and support `robotsUserAgent`.
-- [ ] Add `includePaths`, `excludePaths`, and full-URL regex matching.
+- [x] Add `includePaths`, `excludePaths`, and full-URL regex matching.
 - [ ] Implement all sitemap modes and external/subdomain/domain policies.
 - [ ] Add crawl delay and per-job maximum concurrency.
 - [ ] Add similar-URL deduplication and query-parameter policy parity.

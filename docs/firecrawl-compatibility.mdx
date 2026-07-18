@@ -58,6 +58,10 @@ robots.txt by default using `FirecrawlAgent`; `robotsUserAgent` selects a custom
 matching group and request user agent, while `ignoreRobotsTxt=true` explicitly
 bypasses the policy. Search defaults to ten
 results and accepts timeouts from one second through five minutes.
+`includePaths` and `excludePaths` are validated regular expressions applied to
+the URL pathname. With `regexOnFullURL=true`, the same expressions are applied
+to the complete URL. Exclusions take precedence over inclusions for both the
+starting page and discovered pages.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

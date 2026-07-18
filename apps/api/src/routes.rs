@@ -499,6 +499,9 @@ async fn firecrawl_v2_crawl(
             url: request.url,
             limit: request.limit,
             max_depth: request.max_discovery_depth,
+            include_paths: request.include_paths,
+            exclude_paths: request.exclude_paths,
+            regex_on_full_url: request.regex_on_full_url.unwrap_or(false),
             include_subdomains: request.allow_subdomains,
             ignore_query_parameters: request.ignore_query_parameters,
             ignore_robots_txt: request.ignore_robots_txt.unwrap_or(false),
@@ -860,10 +863,6 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
         (
             request.allow_external_links == Some(true),
             "allowExternalLinks=true",
-        ),
-        (
-            request.regex_on_full_url == Some(true),
-            "regexOnFullURL=true",
         ),
         (
             request.zero_data_retention == Some(true),
@@ -1626,6 +1625,9 @@ mod tests {
         assert_eq!(crawl.limit, 10_000);
         assert_eq!(crawl.max_discovery_depth, 10_000);
         assert!(!crawl.ignore_query_parameters);
+        assert!(crawl.include_paths.is_empty());
+        assert!(crawl.exclude_paths.is_empty());
+        assert_eq!(crawl.regex_on_full_url, None);
 
         let map: FirecrawlV2MapRequest = serde_json::from_value(json!({
             "url": "https://example.com"
