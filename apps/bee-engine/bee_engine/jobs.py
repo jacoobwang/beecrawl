@@ -45,9 +45,7 @@ class JobStore:
 
     async def health(self) -> dict[str, int]:
         async with self._lock:
-            processing = sum(
-                1 for job in self._jobs.values() if getattr(job, "processing", False)
-            )
+            processing = sum(1 for job in self._jobs.values() if getattr(job, "processing", False))
             failed = sum(1 for job in self._jobs.values() if isinstance(job, FailedResponse))
             return {
                 "total": len(self._jobs),

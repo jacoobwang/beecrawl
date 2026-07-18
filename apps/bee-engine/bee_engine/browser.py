@@ -67,7 +67,9 @@ class BrowserPool:
                     timeout=request.timeout,
                 )
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=min(5000, request.timeout))
+                    await page.wait_for_load_state(
+                        "networkidle", timeout=min(5000, request.timeout)
+                    )
                 except Exception:
                     pass
                 if request.wait:
@@ -83,7 +85,9 @@ class BrowserPool:
                             await page.wait_for_selector(action.selector, timeout=request.timeout)
                         else:
                             await page.wait_for_timeout(action.milliseconds)
-                        action_results.append(ActionResult(idx=idx, type="wait", result={"ok": True}))
+                        action_results.append(
+                            ActionResult(idx=idx, type="wait", result={"ok": True})
+                        )
                     elif action.type == "screenshot":
                         if action.viewport:
                             await page.set_viewport_size(action.viewport.model_dump())
@@ -109,7 +113,9 @@ class BrowserPool:
                             )
                         )
                     elif action.type == "scrape":
-                        action_content.append(ActionContent(url=page.url, html=await page.content()))
+                        action_content.append(
+                            ActionContent(url=page.url, html=await page.content())
+                        )
                         action_results.append(
                             ActionResult(
                                 idx=idx,
@@ -137,7 +143,9 @@ class BrowserPool:
                     elif action.type == "write":
                         await page.keyboard.type(action.text)
                         action_results.append(
-                            ActionResult(idx=idx, type="write", result={"written": len(action.text)})
+                            ActionResult(
+                                idx=idx, type="write", result={"written": len(action.text)}
+                            )
                         )
                     elif action.type == "press":
                         await page.keyboard.press(action.key)
@@ -238,7 +246,9 @@ def _context_options(request: BeeEngineScrapeRequest) -> dict[str, Any]:
         "ignore_https_errors": request.skip_tls_verification,
         "extra_http_headers": request.headers,
         "user_agent": request.headers.get("User-Agent", DEFAULT_USER_AGENT),
-        "viewport": {"width": 390, "height": 844} if request.mobile else {"width": 1366, "height": 768},
+        "viewport": {"width": 390, "height": 844}
+        if request.mobile
+        else {"width": 1366, "height": 768},
         "is_mobile": request.mobile,
         "has_touch": request.mobile,
     }
@@ -260,7 +270,9 @@ async def _route_handler(route) -> None:
         host = request.url.split("/")[2]
     except IndexError:
         pass
-    if request.resource_type in BLOCKED_RESOURCE_TYPES or any(x in host for x in BLOCKED_HOST_PARTS):
+    if request.resource_type in BLOCKED_RESOURCE_TYPES or any(
+        x in host for x in BLOCKED_HOST_PARTS
+    ):
         await route.abort()
     else:
         await route.continue_()

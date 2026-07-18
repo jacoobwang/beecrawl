@@ -146,6 +146,21 @@ class FingerprintFetchResponse(BaseModel):
     body: str
 
 
+class DocumentParseRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=512)
+    base64: str = Field(min_length=1)
+    formats: list[Literal["markdown", "html", "rawHtml", "summary", "json"]] = Field(
+        default_factory=lambda: ["markdown"]
+    )
+    mode: Literal["fast", "auto", "ocr"] = "auto"
+    max_pages: int | None = Field(default=None, alias="maxPages", ge=1, le=10000)
+
+
+class DocumentParseResponse(BaseModel):
+    data: dict[str, Any]
+    metadata: dict[str, Any]
+
+
 class ProcessingResponse(BaseModel):
     job_id: str = Field(alias="jobId")
     processing: bool = True

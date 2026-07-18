@@ -9,8 +9,8 @@ COPY apps/bee-engine ./apps/bee-engine
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl \
-    && pip install --no-cache-dir '.[browser]' \
+    && apt-get install -y --no-install-recommends antiword ca-certificates curl tesseract-ocr \
+    && pip install --no-cache-dir '.[browser,fingerprint,documents]' \
     && python -m playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 --shell /usr/sbin/nologin beecrawl \

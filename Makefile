@@ -31,7 +31,7 @@ migrate-up:
 	./scripts/sqlx.sh migrate run --source apps/api/migrations
 
 bee-engine:
-	$(UV) run --extra browser --extra fingerprint uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)
+	$(UV) run --extra browser --extra fingerprint --extra documents uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)
 
 playwright-install:
 	$(UV) run --extra browser playwright install chromium
@@ -40,7 +40,7 @@ firecrawl-contract:
 	$(UV) run --with firecrawl-py==4.32.1 python scripts/firecrawl_v2_contract.py --api-url http://$(HOST):$(PORT)
 
 python-test:
-	$(UV) run --extra dev pytest -q
+	$(UV) run --extra dev --extra documents pytest -q
 
 python-lint:
 	$(UV) run --extra dev ruff check .

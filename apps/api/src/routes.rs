@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{DefaultBodyLimit, Multipart, Query, State};
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::Engine as _;
-use serde_json::json;
+use serde_json::{json, Value};
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
@@ -32,6 +33,14 @@ struct AppState {
     client: reqwest::Client,
     cache: CacheStore,
     crawls: CrawlStore,
+    parse_uploads: Arc<tokio::sync::Mutex<HashMap<String, ParseUpload>>>,
+}
+
+#[derive(Clone)]
+struct ParseUpload {
+    filename: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    data: Option<Bytes>,
 }
 
 pub fn app() -> Router {
@@ -43,6 +52,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         client: reqwest::Client::new(),
         cache: CacheStore::from_env(),
         crawls,
+        parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
     Router::new()
         .route("/health", get(health))
@@ -57,6 +67,9 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/scrape", post(firecrawl_v2_scrape))
         .route("/v2/parse", post(firecrawl_v2_parse))
         .route("/v2/parse/base64", post(firecrawl_v2_parse_base64))
+        .route("/v2/parse/reference", post(firecrawl_v2_parse_reference))
+        .route("/v2/parse/upload-url", post(firecrawl_v2_parse_upload_url))
+        .route("/v2/parse/upload/:id", put(firecrawl_v2_parse_upload))
         .route("/v2/crawl", post(firecrawl_v2_crawl))
         .route("/v2/crawl/active", get(firecrawl_v2_active_crawls))
         .route("/v2/crawl/ongoing", get(firecrawl_v2_active_crawls))
@@ -325,12 +338,14 @@ async fn firecrawl_v2_scrape(
 }
 
 async fn firecrawl_v2_parse(
+    State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     mut multipart: Multipart,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
     let mut file = None;
     let mut filename = None;
+    let mut upload_ref = None;
     let mut options = FirecrawlV2ParseOptions::default();
 
     while let Some(field) = multipart.next_field().await.map_err(|error| {
@@ -351,11 +366,23 @@ async fn firecrawl_v2_parse(
                     ApiError::InvalidRequest(format!("Invalid parse options JSON: {error}"))
                 })?;
             }
+            Some("uploadRef") => {
+                upload_ref = Some(field.text().await.map_err(|error| {
+                    ApiError::InvalidRequest(format!("Could not read uploadRef: {error}"))
+                })?);
+            }
             _ => {}
         }
     }
 
-    parse_pdf_response(
+    if let Some(upload_ref) = upload_ref {
+        let upload = take_parse_upload(&state, &upload_ref).await?;
+        filename = Some(upload.filename);
+        file = upload.data;
+    }
+
+    parse_document_response(
+        &state.client,
         filename.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?,
         file.ok_or_else(|| ApiError::InvalidRequest("Missing file field".to_string()))?,
         options,
@@ -363,53 +390,218 @@ async fn firecrawl_v2_parse(
     .await
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParseUploadInitRequest {
+    filename: String,
+    #[serde(rename = "contentType", default = "default_upload_content_type")]
+    content_type: String,
+    #[serde(rename = "declaredSizeBytes")]
+    declared_size_bytes: Option<usize>,
+}
+
+fn default_upload_content_type() -> String {
+    "application/octet-stream".to_string()
+}
+
+#[derive(serde::Deserialize)]
+struct ParseUploadQuery {
+    #[serde(rename = "uploadRef")]
+    upload_ref: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ParseReferenceRequest {
+    #[serde(rename = "uploadRef")]
+    upload_ref: String,
+    #[serde(flatten)]
+    options: FirecrawlV2ParseOptions,
+}
+
+async fn firecrawl_v2_parse_upload_url(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    payload: Result<Json<ParseUploadInitRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    if request.filename.len() > 512 || request.filename.contains(['/', '\\']) {
+        return Err(ApiError::InvalidRequest(
+            "Invalid upload filename".to_string(),
+        ));
+    }
+    if request
+        .declared_size_bytes
+        .is_some_and(|size| size == 0 || size > 50 * 1024 * 1024)
+    {
+        return Err(ApiError::InvalidRequest(
+            "declaredSizeBytes must be between 1 and 52428800".to_string(),
+        ));
+    }
+    let extension = std::path::Path::new(&request.filename)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(
+        extension.as_str(),
+        "html" | "htm" | "xhtml" | "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx"
+    ) {
+        return Err(ApiError::InvalidRequest(
+            "Unsupported upload type".to_string(),
+        ));
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let expires_at = chrono::Utc::now() + chrono::Duration::minutes(15);
+    state.parse_uploads.lock().await.insert(
+        id.clone(),
+        ParseUpload {
+            filename: request.filename,
+            expires_at,
+            data: None,
+        },
+    );
+    Ok(Json(json!({
+        "success": true,
+        "data": {
+            "uploadUrl": format!("/v2/parse/upload/{id}?uploadRef={id}"),
+            "uploadRef": id,
+            "method": "PUT",
+            "headers": { "Content-Type": request.content_type },
+            "expiresAt": expires_at,
+            "maxSizeBytes": 50 * 1024 * 1024,
+        }
+    }))
+    .into_response())
+}
+
+async fn firecrawl_v2_parse_upload(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(query): Query<ParseUploadQuery>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    if id != query.upload_ref || body.is_empty() || body.len() > 50 * 1024 * 1024 {
+        return Err(ApiError::InvalidRequest("Invalid parse upload".to_string()));
+    }
+    let mut uploads = state.parse_uploads.lock().await;
+    let upload = uploads.get_mut(&id).ok_or(ApiError::NotFound)?;
+    if upload.expires_at <= chrono::Utc::now() {
+        uploads.remove(&id);
+        return Err(ApiError::InvalidRequest(
+            "uploadRef has expired".to_string(),
+        ));
+    }
+    upload.data = Some(body);
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+async fn firecrawl_v2_parse_reference(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    payload: Result<Json<ParseReferenceRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    let upload = take_parse_upload(&state, &request.upload_ref).await?;
+    parse_document_response(
+        &state.client,
+        upload.filename,
+        upload
+            .data
+            .ok_or_else(|| ApiError::InvalidRequest("Upload is incomplete".to_string()))?,
+        request.options,
+    )
+    .await
+}
+
+async fn take_parse_upload(state: &AppState, upload_ref: &str) -> Result<ParseUpload, ApiError> {
+    let mut uploads = state.parse_uploads.lock().await;
+    let upload = uploads.get(upload_ref).cloned().ok_or(ApiError::NotFound)?;
+    if upload.expires_at <= chrono::Utc::now() {
+        uploads.remove(upload_ref);
+        return Err(ApiError::InvalidRequest(
+            "uploadRef has expired".to_string(),
+        ));
+    }
+    if upload.data.is_none() {
+        return Err(ApiError::InvalidRequest("Upload is incomplete".to_string()));
+    }
+    uploads.remove(upload_ref);
+    Ok(upload)
+}
+
 async fn firecrawl_v2_parse_base64(
+    State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     payload: Result<Json<FirecrawlV2Base64ParseRequest>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
-    let bytes = decode_base64_pdf(&request.base64)?;
-    parse_pdf_response(request.filename, bytes.into(), request.options).await
+    let bytes = decode_base64_document(&request.base64)?;
+    parse_document_response(
+        &state.client,
+        request.filename,
+        bytes.into(),
+        request.options,
+    )
+    .await
 }
 
-fn decode_base64_pdf(value: &str) -> Result<Vec<u8>, ApiError> {
-    let encoded = value
-        .trim()
-        .strip_prefix("data:application/pdf;base64,")
-        .unwrap_or(value.trim());
+fn decode_base64_document(value: &str) -> Result<Vec<u8>, ApiError> {
+    let trimmed = value.trim();
+    let encoded = if trimmed.starts_with("data:") {
+        trimmed
+            .split_once(",")
+            .map(|(_, data)| data)
+            .ok_or_else(|| ApiError::InvalidRequest("Invalid document data URL".to_string()))?
+    } else {
+        trimmed
+    };
     base64::engine::general_purpose::STANDARD
         .decode(encoded)
-        .map_err(|error| ApiError::InvalidRequest(format!("Invalid PDF base64 data: {error}")))
+        .map_err(|error| ApiError::InvalidRequest(format!("Invalid document base64 data: {error}")))
 }
 
-async fn parse_pdf_response(
+async fn parse_document_response(
+    client: &reqwest::Client,
     filename: String,
     bytes: axum::body::Bytes,
     options: FirecrawlV2ParseOptions,
 ) -> Result<Response, ApiError> {
     if bytes.len() > 50 * 1024 * 1024 {
         return Err(ApiError::InvalidRequest(
-            "PDF file must not exceed 50 MB".to_string(),
+            "Document file must not exceed 50 MB".to_string(),
         ));
     }
-    if !filename.to_ascii_lowercase().ends_with(".pdf") {
+    let extension = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !matches!(
+        extension.as_str(),
+        "html" | "htm" | "xhtml" | "pdf" | "doc" | "docx" | "odt" | "rtf" | "xls" | "xlsx"
+    ) {
         return Err(ApiError::InvalidRequest(
-            "Only PDF files are currently supported by /v2/parse".to_string(),
+            "Unsupported file type for /v2/parse".to_string(),
         ));
     }
-    if !bytes.starts_with(b"%PDF-") {
+    let is_pdf = extension == "pdf";
+    if is_pdf && !bytes.starts_with(b"%PDF-") {
         return Err(ApiError::InvalidRequest(
             "Uploaded file is not a PDF".to_string(),
         ));
     }
-    if options
-        .formats
-        .iter()
-        .any(|format| !format.name().eq_ignore_ascii_case("markdown"))
-    {
+    if options.formats.iter().any(|format| {
+        !matches!(
+            format.name(),
+            "markdown" | "html" | "rawHtml" | "summary" | "json"
+        )
+    }) {
         return Err(ApiError::InvalidRequest(
-            "Only the markdown format is currently supported by /v2/parse".to_string(),
+            "Parse supports markdown, html, rawHtml, summary, and json formats".to_string(),
         ));
     }
     if options.timeout > 300_000 {
@@ -431,9 +623,9 @@ async fn parse_pdf_response(
         ));
     }
     if let Some(mode) = parser.and_then(|parser| parser.mode.as_deref()) {
-        if !matches!(mode, "fast" | "auto") {
+        if !matches!(mode, "fast" | "auto" | "ocr") {
             return Err(ApiError::InvalidRequest(
-                "OCR PDF parsing is not currently supported".to_string(),
+                "PDF mode must be fast, auto, or ocr".to_string(),
             ));
         }
     }
@@ -443,22 +635,64 @@ async fn parse_pdf_response(
             "PDF maxPages must be between 1 and 10000".to_string(),
         ));
     }
-    let parsed = tokio::task::spawn_blocking(move || crate::pdf::parse(&bytes, max_pages))
-        .await
-        .map_err(|error| ApiError::Internal(format!("PDF parser failed: {error}")))?
-        .map_err(ApiError::InvalidRequest)?;
-    Ok(Json(json!({
-        "success": true,
-        "data": {
-            "markdown": parsed.markdown,
-            "metadata": {
-                "numPages": parsed.num_pages,
-                "totalPages": parsed.total_pages,
-                "sourceFile": filename,
-            }
+    let mode = parser
+        .and_then(|parser| parser.mode.clone())
+        .unwrap_or_else(|| "auto".to_string());
+    let format_names = firecrawl_format_names(&options.formats);
+    if is_pdf && mode != "ocr" && format_names == ["markdown"] {
+        let local_bytes = bytes.clone();
+        let parsed =
+            tokio::task::spawn_blocking(move || crate::pdf::parse(&local_bytes, max_pages))
+                .await
+                .map_err(|error| ApiError::Internal(format!("PDF parser failed: {error}")))?
+                .map_err(ApiError::InvalidRequest)?;
+        if mode == "fast" || !parsed.markdown.trim().is_empty() {
+            return Ok(Json(json!({
+                "success": true,
+                "data": {
+                    "markdown": parsed.markdown,
+                    "metadata": {
+                        "numPages": parsed.num_pages,
+                        "totalPages": parsed.total_pages,
+                        "ocrPages": 0,
+                        "sourceFile": filename,
+                        "sourceURL": filename,
+                    }
+                }
+            }))
+            .into_response());
         }
-    }))
-    .into_response())
+    }
+    let engine_url =
+        std::env::var("BEE_ENGINE_URL").unwrap_or_else(|_| "http://127.0.0.1:8020".to_string());
+    let response = client
+        .post(format!("{}/parse", engine_url.trim_end_matches('/')))
+        .json(&json!({
+            "filename": filename,
+            "base64": base64::engine::general_purpose::STANDARD.encode(&bytes),
+            "formats": format_names,
+            "mode": mode,
+            "maxPages": max_pages,
+        }))
+        .timeout(std::time::Duration::from_millis(options.timeout.max(1_000)))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Document parser unavailable: {error}")))?;
+    if !response.status().is_success() {
+        return Err(ApiError::InvalidRequest(format!(
+            "Document parser returned HTTP {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        )));
+    }
+    let parsed: Value = response.json().await.map_err(|error| {
+        ApiError::Internal(format!("Invalid document parser response: {error}"))
+    })?;
+    let mut data = parsed["data"].clone();
+    data["metadata"] = parsed["metadata"].clone();
+    data["metadata"]["sourceFile"] = json!(filename);
+    data["metadata"]["sourceURL"] = json!(filename);
+    Ok(Json(json!({ "success": true, "data": data })).into_response())
 }
 
 async fn firecrawl_v2_map(
@@ -2239,6 +2473,7 @@ mod tests {
             client: reqwest::Client::new(),
             cache: CacheStore::from_env(),
             crawls: CrawlStore::unavailable("not needed"),
+            parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         };
         let mut document = json!({
             "markdown": "# Example\n\nA useful summary paragraph.",
@@ -2465,10 +2700,31 @@ mod tests {
 
     #[test]
     fn parse_base64_accepts_bare_and_data_url_values() {
-        let bare = decode_base64_pdf("JVBERi0=").unwrap();
-        let data_url = decode_base64_pdf("data:application/pdf;base64,JVBERi0=").unwrap();
+        let bare = decode_base64_document("JVBERi0=").unwrap();
+        let data_url = decode_base64_document("data:application/pdf;base64,JVBERi0=").unwrap();
         assert_eq!(bare, b"%PDF-");
         assert_eq!(data_url, bare);
+    }
+
+    #[tokio::test]
+    async fn parse_upload_references_are_expiring_and_single_use() {
+        let state = AppState {
+            client: reqwest::Client::new(),
+            cache: CacheStore::from_env(),
+            crawls: CrawlStore::unavailable("not needed"),
+            parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
+                "upload-token".to_string(),
+                ParseUpload {
+                    filename: "upload.html".to_string(),
+                    expires_at: chrono::Utc::now() + chrono::Duration::minutes(1),
+                    data: Some(Bytes::from_static(b"<h1>Upload</h1>")),
+                },
+            )]))),
+        };
+        let upload = take_parse_upload(&state, "upload-token").await.unwrap();
+        assert_eq!(upload.filename, "upload.html");
+        assert_eq!(upload.data.unwrap(), Bytes::from_static(b"<h1>Upload</h1>"));
+        assert!(take_parse_upload(&state, "upload-token").await.is_err());
     }
 
     #[test]

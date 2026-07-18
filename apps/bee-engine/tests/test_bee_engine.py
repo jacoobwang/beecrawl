@@ -187,10 +187,7 @@ def test_fingerprint_proxy_url_preserves_encoded_credentials() -> None:
         username="bee user",
         password="p@ss",
     )
-    assert (
-        app_module._proxy_url(proxy)
-        == "http://bee%20user:p%40ss@proxy.example.com:8080/"
-    )
+    assert app_module._proxy_url(proxy) == "http://bee%20user:p%40ss@proxy.example.com:8080/"
 
 
 def test_scrape_instant_return_status_and_delete() -> None:

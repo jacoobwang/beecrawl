@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import asyncio
+import base64
 import os
 import socket
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
@@ -15,6 +17,8 @@ from bee_engine.models import (
     BeeEngineStatusResponse,
     FingerprintFetchRequest,
     FingerprintFetchResponse,
+    DocumentParseRequest,
+    DocumentParseResponse,
     ProcessingResponse,
 )
 
@@ -61,6 +65,27 @@ def _fingerprint_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+@app.post("/parse", response_model=DocumentParseResponse)
+async def parse_document_endpoint(request: DocumentParseRequest) -> DocumentParseResponse:
+    from bee_engine.document_parser import parse_document, rendered_formats
+
+    try:
+        data = base64.b64decode(request.base64, validate=True)
+        markdown, metadata = await asyncio.to_thread(
+            parse_document,
+            data,
+            request.filename,
+            mode=request.mode,
+            max_pages=request.max_pages,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Document parsing failed: {exc}") from exc
+    return DocumentParseResponse(
+        data=rendered_formats(markdown, request.formats),
+        metadata=metadata,
+    )
 
 
 @app.post("/fetch", response_model=FingerprintFetchResponse)

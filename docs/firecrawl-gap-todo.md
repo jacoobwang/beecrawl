@@ -64,12 +64,12 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 7. File parsing
 
-- [ ] Add OCR for scanned PDFs.
-- [ ] Parse HTML uploads.
-- [ ] Parse DOC/DOCX, ODT, and RTF documents.
-- [ ] Parse XLS/XLSX workbooks.
-- [ ] Add upload-reference and pre-signed upload flows.
-- [ ] Support applicable scrape formats for parsed documents.
+- [x] Add OCR for scanned PDFs.
+- [x] Parse HTML uploads.
+- [x] Parse DOC/DOCX, ODT, and RTF documents.
+- [x] Parse XLS/XLSX workbooks.
+- [x] Add upload-reference and pre-signed upload flows.
+- [x] Support applicable scrape formats for parsed documents.
 
 ## 8. Search providers and filters
 
