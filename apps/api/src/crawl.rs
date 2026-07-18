@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
@@ -9,8 +10,9 @@ use uuid::Uuid;
 
 use crate::cache::CacheStore;
 use crate::models::{
-    BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlError,
-    CrawlPagination, CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, WebExtractMapRequest,
+    ActiveCrawl, ActiveCrawlsResponse, BatchScrapeEnqueueResponse, BatchScrapeRequest,
+    CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
+    CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse, WebExtractMapRequest,
     WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
@@ -188,7 +190,7 @@ impl CrawlStore {
     ) -> Result<Option<CrawlStatusResponse>, CrawlStoreError> {
         let id = parse_id(id)?;
         let pool = self.pool()?;
-        let job = sqlx::query("SELECT id, url, status FROM crawl_jobs WHERE id = $1")
+        let job = sqlx::query("SELECT id, url, status, expires_at FROM crawl_jobs WHERE id = $1")
             .bind(id)
             .fetch_optional(pool)
             .await?;
@@ -242,7 +244,78 @@ impl CrawlStore {
                 total: results_total,
                 next: (query.offset + limit < results_total).then_some(query.offset + limit),
             },
+            expires_at: job
+                .try_get::<Option<DateTime<Utc>>, _>("expires_at")?
+                .map(|value| value.to_rfc3339()),
         }))
+    }
+
+    pub async fn errors(
+        &self,
+        id: &str,
+    ) -> Result<Option<FirecrawlJobErrorsResponse>, CrawlStoreError> {
+        let id = parse_id(id)?;
+        let pool = self.pool()?;
+        let exists =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM crawl_jobs WHERE id = $1)")
+                .bind(id)
+                .fetch_one(pool)
+                .await?;
+        if !exists {
+            return Ok(None);
+        }
+        let rows = sqlx::query("SELECT id, url, error_message, finished_at FROM crawl_tasks WHERE crawl_id = $1 AND status = 'failed' ORDER BY finished_at ASC NULLS LAST")
+            .bind(id)
+            .fetch_all(pool)
+            .await?;
+        let errors = rows
+            .into_iter()
+            .map(|row| {
+                Ok(FirecrawlJobError {
+                    id: row.try_get::<Uuid, _>("id")?.to_string(),
+                    timestamp: row
+                        .try_get::<Option<DateTime<Utc>>, _>("finished_at")?
+                        .map(|value| value.to_rfc3339()),
+                    url: row.try_get("url")?,
+                    error: row
+                        .try_get::<Option<String>, _>("error_message")?
+                        .unwrap_or_else(|| "Crawl task failed".to_string()),
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        Ok(Some(FirecrawlJobErrorsResponse {
+            errors,
+            robots_blocked: Vec::new(),
+        }))
+    }
+
+    pub async fn active(&self) -> Result<ActiveCrawlsResponse, CrawlStoreError> {
+        let rows = sqlx::query("SELECT id, url, status, job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters FROM crawl_jobs WHERE job_type = 'crawl' AND status IN ('queued', 'scraping') AND cancel_requested = false ORDER BY created_at ASC")
+            .fetch_all(self.pool()?)
+            .await?;
+        let crawls = rows
+            .into_iter()
+            .map(|row| {
+                let job_type: String = row.try_get("job_type")?;
+                Ok(ActiveCrawl {
+                    id: row.try_get::<Uuid, _>("id")?.to_string(),
+                    team_id: "self-hosted".to_string(),
+                    url: row.try_get("url")?,
+                    status: row.try_get("status")?,
+                    options: serde_json::json!({
+                        "jobType": job_type,
+                        "limit": row.try_get::<i64, _>("page_limit")?,
+                        "maxDiscoveryDepth": row.try_get::<i32, _>("max_depth")?,
+                        "allowSubdomains": row.try_get::<bool, _>("include_subdomains")?,
+                        "ignoreQueryParameters": row.try_get::<bool, _>("ignore_query_parameters")?,
+                    }),
+                })
+            })
+            .collect::<Result<Vec<_>, sqlx::Error>>()?;
+        Ok(ActiveCrawlsResponse {
+            success: true,
+            crawls,
+        })
     }
 
     pub async fn cancel(&self, id: &str) -> Result<Option<CrawlStatusResponse>, CrawlStoreError> {

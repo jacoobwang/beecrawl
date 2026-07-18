@@ -167,8 +167,15 @@ POST   /v2/parse
 POST   /v2/parse/base64
 POST   /v2/map
 POST   /v2/crawl
+GET    /v2/crawl/active
+GET    /v2/crawl/ongoing
 GET    /v2/crawl/{id}
 DELETE /v2/crawl/{id}
+GET    /v2/crawl/{id}/errors
+POST   /v2/batch/scrape
+GET    /v2/batch/scrape/{id}
+DELETE /v2/batch/scrape/{id}
+GET    /v2/batch/scrape/{id}/errors
 POST   /v2/extract
 POST   /v2/search
 ```
@@ -183,8 +190,8 @@ local API to verify the adapter through the official Python SDK.
 The v2 extract adapter supports multiple URLs and JSON Schema objects. Search
 supports Web results with optional scraping; requested news and image groups
 are returned empty until providers for those source types are added. Batch
-scrape, crawl error listing, and usage-account endpoints are not yet part of
-the compatibility surface.
+scrape, error listing, active crawl discovery, and paginated job status are
+part of the compatibility surface. Usage-account endpoints are not implemented.
 
 `POST /v2/parse` accepts a local PDF as `multipart/form-data`: a required
 `file` field and an optional JSON `options` field. It returns Markdown with

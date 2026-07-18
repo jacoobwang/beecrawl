@@ -145,6 +145,16 @@ pub struct FirecrawlV2CrawlRequest {
     pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrawlV2BatchScrapeRequest {
+    pub urls: Vec<String>,
+    #[serde(default)]
+    pub origin: Option<String>,
+    #[serde(flatten)]
+    pub scrape_options: FirecrawlV2ScrapeOptions,
+}
+
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ScrapeOptions {
@@ -383,11 +393,12 @@ pub struct CrawlStatusResponse {
     pub data: Vec<WebExtractScrapeResponse>,
     pub errors: Vec<CrawlError>,
     pub pagination: CrawlPagination,
+    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct CrawlStatusQuery {
-    #[serde(default)]
+    #[serde(default, alias = "skip")]
     pub offset: usize,
     #[serde(default = "default_crawl_status_limit")]
     pub limit: usize,
@@ -415,6 +426,37 @@ pub struct CrawlError {
     pub url: String,
     pub code: String,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FirecrawlJobErrorsResponse {
+    pub errors: Vec<FirecrawlJobError>,
+    #[serde(rename = "robotsBlocked")]
+    pub robots_blocked: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FirecrawlJobError {
+    pub id: String,
+    pub timestamp: Option<String>,
+    pub url: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveCrawlsResponse {
+    pub success: bool,
+    pub crawls: Vec<ActiveCrawl>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActiveCrawl {
+    pub id: String,
+    #[serde(rename = "teamId")]
+    pub team_id: String,
+    pub url: String,
+    pub status: String,
+    pub options: Value,
 }
 
 #[derive(Debug, Deserialize)]

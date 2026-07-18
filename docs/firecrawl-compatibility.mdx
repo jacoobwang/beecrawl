@@ -12,8 +12,15 @@ POST   /v2/parse
 POST   /v2/parse/base64
 POST   /v2/map
 POST   /v2/crawl
+GET    /v2/crawl/active
+GET    /v2/crawl/ongoing
 GET    /v2/crawl/{id}
 DELETE /v2/crawl/{id}
+GET    /v2/crawl/{id}/errors
+POST   /v2/batch/scrape
+GET    /v2/batch/scrape/{id}
+DELETE /v2/batch/scrape/{id}
+GET    /v2/batch/scrape/{id}/errors
 POST   /v2/extract
 POST   /v2/search
 ```
@@ -58,6 +65,10 @@ JSON instead:
 `data` is accepted as an alias for `base64`; both bare Base64 and a PDF data
 URL are valid. The decoded PDF limit remains 50 MB.
 
-The compatibility layer does not currently implement batch scrape, usage
-accounts, or Firecrawl's news and image search providers. Request fields not
-implemented by an adapter are rejected rather than accepted as no-ops.
+Batch scrape uses the same Postgres-backed queue and worker as crawl. Crawl and
+batch status responses include `id`, `expiresAt`, and a `next` URL while more
+results are available. Error endpoints return terminal page errors separately.
+
+The compatibility layer does not currently implement usage accounts or
+Firecrawl's news and image search providers. Request fields not implemented by
+an adapter are rejected rather than accepted as no-ops.

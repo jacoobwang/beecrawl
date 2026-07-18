@@ -9,12 +9,12 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 1. Async job protocol compatibility
 
-- [ ] Add `POST /v2/batch/scrape`.
-- [ ] Add `GET /v2/batch/scrape/{id}` with Firecrawl pagination fields.
-- [ ] Add `DELETE /v2/batch/scrape/{id}`.
-- [ ] Add crawl and batch `/{id}/errors` endpoints.
-- [ ] Add `/v2/crawl/active` and `/v2/crawl/ongoing`.
-- [ ] Return stable job IDs, expiry metadata, pagination URLs, and error shapes.
+- [x] Add `POST /v2/batch/scrape`.
+- [x] Add `GET /v2/batch/scrape/{id}` with Firecrawl pagination fields.
+- [x] Add `DELETE /v2/batch/scrape/{id}`.
+- [x] Add crawl and batch `/{id}/errors` endpoints.
+- [x] Add `/v2/crawl/active` and `/v2/crawl/ongoing`.
+- [x] Return stable job IDs, expiry metadata, pagination URLs, and error shapes.
 
 ## 2. Current Firecrawl SDK contract
 

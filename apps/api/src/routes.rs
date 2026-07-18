@@ -14,10 +14,10 @@ use tower_http::trace::TraceLayer;
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlV2Base64ParseRequest, FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest,
-    FirecrawlV2MapRequest, FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest,
-    FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest, SearchScrapeOptions,
-    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest, FirecrawlV2CrawlRequest,
+    FirecrawlV2ExtractRequest, FirecrawlV2MapRequest, FirecrawlV2ParseOptions,
+    FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest,
+    SearchScrapeOptions, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -56,9 +56,18 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/parse", post(firecrawl_v2_parse))
         .route("/v2/parse/base64", post(firecrawl_v2_parse_base64))
         .route("/v2/crawl", post(firecrawl_v2_crawl))
+        .route("/v2/crawl/active", get(firecrawl_v2_active_crawls))
+        .route("/v2/crawl/ongoing", get(firecrawl_v2_active_crawls))
+        .route("/v2/crawl/:id/errors", get(firecrawl_v2_job_errors))
         .route(
             "/v2/crawl/:id",
             get(firecrawl_v2_crawl_status).delete(firecrawl_v2_cancel_crawl),
+        )
+        .route("/v2/batch/scrape", post(firecrawl_v2_batch_scrape))
+        .route("/v2/batch/scrape/:id/errors", get(firecrawl_v2_job_errors))
+        .route(
+            "/v2/batch/scrape/:id",
+            get(firecrawl_v2_batch_scrape_status).delete(firecrawl_v2_cancel_crawl),
         )
         .route("/v2/map", post(firecrawl_v2_map))
         .route("/v2/extract", post(firecrawl_v2_extract))
@@ -463,7 +472,54 @@ async fn firecrawl_v2_crawl(
             max_retries: 2,
         })
         .await?;
-    Ok(Json(json!({ "success": true, "id": response.id, "url": response.url })).into_response())
+    let status_url = format!("/v2/crawl/{}", response.id);
+    Ok(Json(json!({ "success": true, "id": response.id, "url": status_url })).into_response())
+}
+
+async fn firecrawl_v2_batch_scrape(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    payload: Result<Json<FirecrawlV2BatchScrapeRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    let scrape = request.scrape_options;
+    validate_firecrawl_scrape_options(
+        scrape.only_main_content,
+        scrape.remove_base64_images,
+        scrape.fast_mode,
+        scrape.block_ads,
+        scrape.store_in_cache,
+        scrape.max_age,
+        scrape.mobile,
+    )?;
+    if scrape
+        .formats
+        .iter()
+        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+    {
+        return Err(ApiError::InvalidRequest(
+            "BeeCrawl batch scrape currently supports only the markdown format".to_string(),
+        ));
+    }
+    let response = state
+        .crawls
+        .enqueue_batch(BatchScrapeRequest {
+            urls: request.urls,
+            timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
+            wait_for_ms: scrape.wait_for_ms,
+            use_browser: "auto".to_string(),
+            skip_tls_verification: scrape.skip_tls_verification.unwrap_or(false),
+            max_retries: 2,
+        })
+        .await?;
+    let status_url = format!("/v2/batch/scrape/{}", response.id);
+    Ok(Json(json!({
+        "success": true,
+        "id": response.id,
+        "url": status_url,
+    }))
+    .into_response())
 }
 
 async fn firecrawl_v2_crawl_status(
@@ -478,7 +534,40 @@ async fn firecrawl_v2_crawl_status(
         .get(&id, query)
         .await?
         .ok_or(ApiError::NotFound)?;
-    Ok(Json(firecrawl_crawl_status(response)).into_response())
+    Ok(Json(firecrawl_crawl_status(response, "crawl")).into_response())
+}
+
+async fn firecrawl_v2_batch_scrape_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<CrawlStatusQuery>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = state
+        .crawls
+        .get(&id, query)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(firecrawl_crawl_status(response, "batch/scrape")).into_response())
+}
+
+async fn firecrawl_v2_job_errors(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let response = state.crawls.errors(&id).await?.ok_or(ApiError::NotFound)?;
+    Ok(Json(response).into_response())
+}
+
+async fn firecrawl_v2_active_crawls(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    Ok(Json(state.crawls.active().await?).into_response())
 }
 
 async fn firecrawl_v2_cancel_crawl(
@@ -790,15 +879,23 @@ fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
     })
 }
 
-fn firecrawl_crawl_status(response: CrawlStatusResponse) -> serde_json::Value {
+fn firecrawl_crawl_status(response: CrawlStatusResponse, resource: &str) -> serde_json::Value {
+    let next = response.pagination.next.map(|offset| {
+        format!(
+            "/v2/{resource}/{}?skip={offset}&limit={}",
+            response.id, response.pagination.limit
+        )
+    });
     json!({
         "success": true,
+        "id": response.id,
         "status": firecrawl_status(&response.status),
         "total": response.total,
         "completed": response.completed,
         "creditsUsed": response.completed,
+        "expiresAt": response.expires_at,
         "data": response.data.into_iter().map(firecrawl_document).collect::<Vec<_>>(),
-        "next": serde_json::Value::Null,
+        "next": next,
     })
 }
 
@@ -1052,6 +1149,67 @@ mod tests {
         let scrape = request.scrape_options.unwrap();
         assert_eq!(scrape.wait_for_ms, 250);
         assert_eq!(scrape.timeout, 45_000);
+    }
+
+    #[test]
+    fn firecrawl_v2_batch_accepts_scrape_options() {
+        let request: FirecrawlV2BatchScrapeRequest = serde_json::from_value(json!({
+            "urls": ["https://example.com", "https://example.com/docs"],
+            "formats": ["markdown"],
+            "waitFor": 250,
+            "timeout": 45000
+        }))
+        .unwrap();
+        assert_eq!(request.urls.len(), 2);
+        assert_eq!(request.scrape_options.formats, ["markdown"]);
+        assert_eq!(request.scrape_options.wait_for_ms, 250);
+        assert_eq!(request.scrape_options.timeout, 45_000);
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_batch_route_uses_async_storage() {
+        let app = app_with_crawls(CrawlStore::unavailable("Postgres is not configured"));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v2/batch/scrape")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"urls":["https://example.com"],"formats":["markdown"]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn firecrawl_status_includes_pagination_url_and_expiry() {
+        let response = firecrawl_crawl_status(
+            CrawlStatusResponse {
+                id: "job-id".to_string(),
+                url: "https://example.com".to_string(),
+                status: "scraping".to_string(),
+                total: 3,
+                completed: 2,
+                failed: 0,
+                data: Vec::new(),
+                errors: Vec::new(),
+                pagination: crate::models::CrawlPagination {
+                    offset: 0,
+                    limit: 2,
+                    total: 3,
+                    next: Some(2),
+                },
+                expires_at: Some("2026-07-25T00:00:00+00:00".to_string()),
+            },
+            "crawl",
+        );
+        assert_eq!(response["id"], "job-id");
+        assert_eq!(response["expiresAt"], "2026-07-25T00:00:00+00:00");
+        assert_eq!(response["next"], "/v2/crawl/job-id?skip=2&limit=2");
     }
 
     #[test]
