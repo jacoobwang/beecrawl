@@ -14,10 +14,11 @@ use tower_http::trace::TraceLayer;
 use crate::models::{
     BatchScrapeEnqueueResponse, BatchScrapeRequest, CrawlEnqueueResponse, CrawlRequest,
     CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest, ExtractResponse,
-    FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest, FirecrawlV2CrawlRequest,
-    FirecrawlV2ExtractRequest, FirecrawlV2MapRequest, FirecrawlV2ParseOptions,
-    FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link, ScrapeResponse, SearchRequest,
-    SearchScrapeOptions, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    FirecrawlFormat, FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest,
+    FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2MapRequest,
+    FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
+    ScrapeResponse, SearchRequest, SearchScrapeOptions, WebExtractMapRequest,
+    WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::{
     cache::CacheStore,
@@ -265,12 +266,23 @@ async fn firecrawl_v2_scrape(
         request.max_age,
         request.mobile,
     )?;
+    let requested_formats = request.formats;
+    let mut fetch_formats = firecrawl_format_names(&requested_formats);
+    let requested_raw_html = fetch_formats.iter().any(|format| format == "rawHtml");
+    if requested_formats
+        .iter()
+        .any(|format| format.name() == "images")
+        && !requested_raw_html
+    {
+        fetch_formats.push("rawHtml".to_string());
+    }
+    let source_url = request.url.clone();
     let response = web_extract::scrape_with_cache(
         &state.client,
         &state.cache,
         WebExtractScrapeRequest {
             url: request.url,
-            formats: request.formats,
+            formats: fetch_formats,
             location: request.location,
             timeout_seconds: request.timeout.div_ceil(1_000).max(1),
             wait_for_ms: request.wait_for_ms,
@@ -279,7 +291,16 @@ async fn firecrawl_v2_scrape(
         },
     )
     .await?;
-    Ok(Json(json!({ "success": true, "data": firecrawl_document(response) })).into_response())
+    let mut document = firecrawl_document(response);
+    enrich_firecrawl_document(
+        &state,
+        &source_url,
+        &requested_formats,
+        requested_raw_html,
+        &mut document,
+    )
+    .await?;
+    Ok(Json(json!({ "success": true, "data": document })).into_response())
 }
 
 async fn firecrawl_v2_parse(
@@ -364,7 +385,7 @@ async fn parse_pdf_response(
     if options
         .formats
         .iter()
-        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+        .any(|format| !format.name().eq_ignore_ascii_case("markdown"))
     {
         return Err(ApiError::InvalidRequest(
             "Only the markdown format is currently supported by /v2/parse".to_string(),
@@ -452,7 +473,7 @@ async fn firecrawl_v2_crawl(
     if scrape
         .formats
         .iter()
-        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+        .any(|format| !format.name().eq_ignore_ascii_case("markdown"))
     {
         return Err(ApiError::InvalidRequest(
             "BeeCrawl crawl currently supports only the markdown scrape format".to_string(),
@@ -497,7 +518,7 @@ async fn firecrawl_v2_batch_scrape(
     if scrape
         .formats
         .iter()
-        .any(|format| !format.eq_ignore_ascii_case("markdown"))
+        .any(|format| !format.name().eq_ignore_ascii_case("markdown"))
     {
         return Err(ApiError::InvalidRequest(
             "BeeCrawl batch scrape currently supports only the markdown format".to_string(),
@@ -732,7 +753,7 @@ async fn firecrawl_v2_search(
             lang: "en".to_string(),
             country: "us".to_string(),
             scrape_options: request.scrape_options.map(|options| SearchScrapeOptions {
-                formats: options.formats,
+                formats: firecrawl_format_names(&options.formats),
                 timeout_seconds: options.timeout.div_ceil(1_000).max(1),
                 wait_for_ms: options.wait_for_ms,
                 use_browser: "auto".to_string(),
@@ -839,6 +860,110 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
             unsupported.join(", ")
         )))
     }
+}
+
+fn firecrawl_format_names(formats: &[FirecrawlFormat]) -> Vec<String> {
+    formats.iter().map(|format| format.name.clone()).collect()
+}
+
+async fn enrich_firecrawl_document(
+    state: &AppState,
+    source_url: &str,
+    formats: &[FirecrawlFormat],
+    requested_raw_html: bool,
+    document: &mut serde_json::Value,
+) -> Result<(), ApiError> {
+    let markdown = document
+        .get("markdown")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let raw_html = document
+        .get("rawHtml")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let Some(fields) = document.as_object_mut() else {
+        return Ok(());
+    };
+
+    for format in formats {
+        match format.name() {
+            "images" => {
+                let images = raw_html
+                    .as_deref()
+                    .map(|html| web_extract::extract_images(html, source_url))
+                    .unwrap_or_default();
+                fields.insert("images".to_string(), json!(images));
+            }
+            "summary" => {
+                fields.insert("summary".to_string(), json!(summarize_markdown(&markdown)));
+            }
+            "json" | "deterministicJson" => {
+                let schema = format
+                    .option("schema")
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                let prompt = format.option("prompt").and_then(serde_json::Value::as_str);
+                let value = if format.name() == "json" {
+                    if let Some(provider) = llm::resolve_provider(None)? {
+                        llm::extract_structured_value(
+                            &state.client,
+                            &provider,
+                            &[source_url.to_string()],
+                            &schema,
+                            &markdown,
+                            prompt,
+                        )
+                        .await?
+                    } else {
+                        deterministic_json(&schema, &markdown, document_title(fields))
+                    }
+                } else {
+                    deterministic_json(&schema, &markdown, document_title(fields))
+                };
+                fields.insert("json".to_string(), value);
+            }
+            _ => {}
+        }
+    }
+    if !requested_raw_html {
+        fields.remove("rawHtml");
+    }
+    Ok(())
+}
+
+fn deterministic_json(
+    schema: &serde_json::Value,
+    markdown: &str,
+    title: Option<String>,
+) -> serde_json::Value {
+    let fields = firecrawl_extract_schema(schema);
+    serde_json::to_value(
+        fields
+            .keys()
+            .map(|field| (field.clone(), extract_field(field, markdown, title.clone())))
+            .collect::<HashMap<_, _>>(),
+    )
+    .unwrap_or_else(|_| json!({}))
+}
+
+fn document_title(fields: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    fields
+        .get("metadata")
+        .and_then(|metadata| metadata.get("title"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+fn summarize_markdown(markdown: &str) -> String {
+    markdown
+        .split("\n\n")
+        .map(str::trim)
+        .find(|section| !section.is_empty() && !section.starts_with('#'))
+        .unwrap_or_else(|| markdown.trim())
+        .chars()
+        .take(500)
+        .collect()
 }
 
 fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::Value {
@@ -1168,7 +1293,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(request.urls.len(), 2);
-        assert_eq!(request.scrape_options.formats, ["markdown"]);
+        assert_eq!(
+            firecrawl_format_names(&request.scrape_options.formats),
+            ["markdown"]
+        );
         assert_eq!(request.scrape_options.wait_for_ms, 250);
         assert_eq!(request.scrape_options.timeout, 45_000);
     }
@@ -1285,7 +1413,10 @@ mod tests {
         assert_eq!(request.sources[0].name(), "web");
         assert_eq!(request.sources[1].name(), "news");
         let scrape_options = request.scrape_options.unwrap();
-        assert_eq!(scrape_options.formats, ["markdown"]);
+        assert_eq!(
+            firecrawl_format_names(&scrape_options.formats),
+            ["markdown"]
+        );
         assert_eq!(scrape_options.timeout, 45_000);
     }
 
@@ -1296,28 +1427,72 @@ mod tests {
             "formats": ["html", { "type": "markdown" }, { "type": "screenshot" }]
         }))
         .unwrap();
-        assert_eq!(request.formats, ["html", "markdown", "screenshot"]);
+        assert_eq!(
+            firecrawl_format_names(&request.formats),
+            ["html", "markdown", "screenshot"]
+        );
     }
 
     #[test]
-    fn firecrawl_v2_rejects_format_options_that_would_be_ignored() {
-        let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+    fn firecrawl_v2_preserves_format_options() {
+        let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
             "url": "https://example.com",
-            "formats": [{ "type": "screenshot", "fullPage": false }]
+            "formats": [{ "type": "json", "schema": { "type": "object" }, "prompt": "Extract" }]
         }))
-        .unwrap_err();
-        assert!(error.to_string().contains("options are not supported"));
-        assert!(error.to_string().contains("fullPage"));
+        .unwrap();
+        assert_eq!(request.formats[0].name(), "json");
+        assert_eq!(request.formats[0].option("prompt"), Some(&json!("Extract")));
+    }
+
+    #[tokio::test]
+    async fn firecrawl_v2_enriches_images_summary_and_deterministic_json() {
+        let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [
+                "images",
+                "summary",
+                { "type": "deterministicJson", "schema": {
+                    "type": "object",
+                    "properties": { "title": { "type": "string" } }
+                }}
+            ]
+        }))
+        .unwrap();
+        let state = AppState {
+            client: reqwest::Client::new(),
+            cache: CacheStore::from_env(),
+            crawls: CrawlStore::unavailable("not needed"),
+        };
+        let mut document = json!({
+            "markdown": "# Example\n\nA useful summary paragraph.",
+            "rawHtml": "<html><body><img src='/hero.png'></body></html>",
+            "metadata": { "title": "Example" }
+        });
+        enrich_firecrawl_document(
+            &state,
+            "https://example.com/page",
+            &request.formats,
+            false,
+            &mut document,
+        )
+        .await
+        .unwrap();
+        assert_eq!(document["images"][0], "https://example.com/hero.png");
+        assert_eq!(document["summary"], "A useful summary paragraph.");
+        assert_eq!(document["json"]["title"], "Example");
+        assert!(document.get("rawHtml").is_none());
     }
 
     #[test]
     fn firecrawl_v2_rejects_unsupported_formats() {
         let error = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
             "url": "https://example.com",
-            "formats": [{ "type": "json" }]
+            "formats": [{ "type": "audio" }]
         }))
         .unwrap_err();
-        assert!(error.to_string().contains("format 'json' is not supported"));
+        assert!(error
+            .to_string()
+            .contains("format 'audio' is not supported"));
     }
 
     #[test]
@@ -1340,7 +1515,7 @@ mod tests {
                     .uri("/v2/scrape")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        r#"{"url":"https://example.com","formats":[{"type":"json","schema":{"type":"object"}}]}"#,
+                        r#"{"url":"https://example.com","formats":[{"type":"audio"}]}"#,
                     ))
                     .unwrap(),
             )
@@ -1353,7 +1528,7 @@ mod tests {
         assert!(error["error"]
             .as_str()
             .unwrap()
-            .contains("options are not supported"));
+            .contains("format 'audio' is not supported"));
     }
 
     #[tokio::test]
@@ -1429,7 +1604,7 @@ mod tests {
             "parsers": [{ "type": "pdf", "mode": "fast", "maxPages": 12 }]
         }))
         .unwrap();
-        assert_eq!(options.formats, ["markdown"]);
+        assert_eq!(firecrawl_format_names(&options.formats), ["markdown"]);
         assert_eq!(options.timeout, 120_000);
         assert_eq!(options.parsers[0].kind, "pdf");
         assert_eq!(options.parsers[0].mode.as_deref(), Some("fast"));

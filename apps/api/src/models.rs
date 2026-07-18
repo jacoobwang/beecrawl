@@ -33,10 +33,10 @@ pub struct FirecrawlV2ScrapeRequest {
     #[serde(default)]
     pub origin: Option<String>,
     #[serde(
-        default = "default_formats",
+        default = "default_firecrawl_formats",
         deserialize_with = "deserialize_firecrawl_formats"
     )]
-    pub formats: Vec<String>,
+    pub formats: Vec<FirecrawlFormat>,
     pub location: Option<WebExtractLocation>,
     #[serde(default = "default_timeout_milliseconds")]
     pub timeout: u64,
@@ -65,10 +65,10 @@ pub struct FirecrawlV2ParseOptions {
     #[serde(default)]
     pub origin: Option<String>,
     #[serde(
-        default = "default_formats",
+        default = "default_firecrawl_formats",
         deserialize_with = "deserialize_firecrawl_formats"
     )]
-    pub formats: Vec<String>,
+    pub formats: Vec<FirecrawlFormat>,
     #[serde(default = "default_timeout_milliseconds")]
     pub timeout: u64,
     #[serde(default)]
@@ -79,7 +79,7 @@ impl Default for FirecrawlV2ParseOptions {
     fn default() -> Self {
         Self {
             origin: None,
-            formats: default_formats(),
+            formats: default_firecrawl_formats(),
             timeout: default_timeout_milliseconds(),
             parsers: Vec::new(),
         }
@@ -156,7 +156,7 @@ pub struct FirecrawlV2BatchScrapeRequest {
 #[serde(deny_unknown_fields)]
 pub struct FirecrawlV2ScrapeOptions {
     #[serde(default, deserialize_with = "deserialize_firecrawl_formats")]
-    pub formats: Vec<String>,
+    pub formats: Vec<FirecrawlFormat>,
     #[serde(default = "default_timeout_milliseconds")]
     pub timeout: u64,
     #[serde(rename = "waitFor", default)]
@@ -176,6 +176,22 @@ pub struct FirecrawlV2ScrapeOptions {
     #[serde(rename = "maxAge")]
     pub max_age: Option<u64>,
     pub mobile: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FirecrawlFormat {
+    pub name: String,
+    pub options: serde_json::Map<String, Value>,
+}
+
+impl FirecrawlFormat {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn option(&self, name: &str) -> Option<&Value> {
+        self.options.get(name)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -602,7 +618,14 @@ fn default_formats() -> Vec<String> {
     vec!["markdown".to_string()]
 }
 
-fn deserialize_firecrawl_formats<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+fn default_firecrawl_formats() -> Vec<FirecrawlFormat> {
+    vec![FirecrawlFormat {
+        name: "markdown".to_string(),
+        options: serde_json::Map::new(),
+    }]
+}
+
+fn deserialize_firecrawl_formats<'de, D>(deserializer: D) -> Result<Vec<FirecrawlFormat>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -610,8 +633,8 @@ where
     formats
         .into_iter()
         .map(|format| {
-            let name = match format {
-                Value::String(name) => name,
+            let (name, options) = match format {
+                Value::String(name) => (name, serde_json::Map::new()),
                 Value::Object(mut options) => {
                     let name = options
                         .remove("type")
@@ -619,13 +642,7 @@ where
                         .ok_or_else(|| {
                             D::Error::custom("format object must contain a string type")
                         })?;
-                    if !options.is_empty() {
-                        let fields = options.keys().cloned().collect::<Vec<_>>().join(", ");
-                        return Err(D::Error::custom(format!(
-                            "Firecrawl format '{name}' options are not supported: {fields}"
-                        )));
-                    }
-                    name
+                    (name, options)
                 }
                 _ => {
                     return Err(D::Error::custom(
@@ -635,13 +652,21 @@ where
             };
             if !matches!(
                 name.as_str(),
-                "markdown" | "html" | "rawHtml" | "links" | "screenshot"
+                "markdown"
+                    | "html"
+                    | "rawHtml"
+                    | "links"
+                    | "screenshot"
+                    | "images"
+                    | "summary"
+                    | "json"
+                    | "deterministicJson"
             ) {
                 return Err(D::Error::custom(format!(
                     "Firecrawl format '{name}' is not supported by BeeCrawl"
                 )));
             }
-            Ok(name)
+            Ok(FirecrawlFormat { name, options })
         })
         .collect()
 }

@@ -26,13 +26,13 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 3. Scrape formats and content controls
 
-- [ ] Add `json` format using the existing OpenAI-compatible extraction layer.
-- [ ] Add `images` and `summary` formats.
+- [x] Add `json` format using the existing OpenAI-compatible extraction layer.
+- [x] Add `images` and `summary` formats.
 - [ ] Add screenshot `fullPage`, `quality`, and viewport options.
 - [ ] Add caller-supplied HTTP headers.
 - [ ] Add `includeTags`, `excludeTags`, `onlyMainContent`, and clean-content control.
 - [ ] Add structured `attributes`, `question`, and `highlights` formats.
-- [ ] Add deterministic JSON extraction.
+- [x] Add deterministic JSON extraction.
 
 ## 4. Crawl policy and delivery
 

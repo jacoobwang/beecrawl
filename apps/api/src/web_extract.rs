@@ -422,6 +422,22 @@ pub fn extract_links(html: &str, base_url: &str) -> Vec<String> {
     links
 }
 
+pub fn extract_images(html: &str, base_url: &str) -> Vec<String> {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("img").expect("valid image selector");
+    let base = Url::parse(base_url).ok();
+    let mut seen = HashSet::new();
+    document
+        .select(&selector)
+        .filter_map(|node| node.value().attr("src"))
+        .filter(|src| !src.starts_with("data:"))
+        .filter_map(|src| base.as_ref().and_then(|base| base.join(src).ok()))
+        .filter(|url| matches!(url.scheme(), "http" | "https"))
+        .map(|url| url.to_string())
+        .filter(|url| seen.insert(url.clone()))
+        .collect()
+}
+
 fn page_to_markdown(page: ProviderPage) -> (ProviderPage, String, HashMap<String, Option<String>>) {
     let (markdown, metadata) = extract_markdown(&page.html, &page.final_url);
     (page, markdown, metadata)
@@ -995,6 +1011,22 @@ mod tests {
         let links = extract_links(html, "https://example.com/start");
 
         assert_eq!(links, vec!["https://example.com/docs".to_string()]);
+    }
+
+    #[test]
+    fn images_are_absolute_deduplicated_and_exclude_data_urls() {
+        let html = r#"<html><body>
+            <img src="/hero.png"><img src="/hero.png">
+            <img src="https://cdn.example.com/photo.jpg">
+            <img src="data:image/png;base64,AAAA">
+        </body></html>"#;
+        assert_eq!(
+            extract_images(html, "https://example.com/docs/page"),
+            [
+                "https://example.com/hero.png",
+                "https://cdn.example.com/photo.jpg"
+            ]
+        );
     }
 
     #[test]

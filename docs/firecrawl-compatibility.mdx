@@ -29,9 +29,11 @@ Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
 routes accept Firecrawl camelCase fields and return a `success` envelope.
 
 The compatibility contract is pinned to `firecrawl-py==4.32.1`. The scrape
-adapter accepts `markdown`, `html`, `rawHtml`, `links`, and
-`screenshot` formats. Format-specific options and unsupported formats such as
-`json` are rejected with JSON `400` responses instead of being silently
+adapter accepts `markdown`, `html`, `rawHtml`, `links`, `screenshot`, `images`,
+`summary`, `json`, and `deterministicJson`. The two JSON formats accept `schema`
+and `prompt`; `json` uses the configured OpenAI-compatible provider and falls
+back to deterministic extraction when no provider is configured. Unsupported
+formats are rejected with JSON `400` responses instead of being silently
 ignored. The defaults emitted by `firecrawl-py` 4.x are accepted when they
 match BeeCrawl's behavior. Unsupported behavior-changing values, including
 `mobile=true` and `fastMode=true`, are also rejected explicitly.
