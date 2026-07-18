@@ -707,6 +707,9 @@ where
                     | "screenshot"
                     | "images"
                     | "summary"
+                    | "attributes"
+                    | "question"
+                    | "highlights"
                     | "json"
                     | "deterministicJson"
             ) {

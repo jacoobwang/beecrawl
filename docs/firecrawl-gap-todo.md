@@ -31,7 +31,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Add screenshot `fullPage`, `quality`, and viewport options.
 - [x] Add caller-supplied HTTP headers.
 - [x] Add `includeTags`, `excludeTags`, `onlyMainContent`, and clean-content control.
-- [ ] Add structured `attributes`, `question`, and `highlights` formats.
+- [x] Add structured `attributes`, `question`, and `highlights` formats.
 - [x] Add deterministic JSON extraction.
 
 ## 4. Crawl policy and delivery

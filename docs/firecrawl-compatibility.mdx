@@ -30,7 +30,8 @@ routes accept Firecrawl camelCase fields and return a `success` envelope.
 
 The compatibility contract is pinned to `firecrawl-py==4.32.1`. The scrape
 adapter accepts `markdown`, `html`, `rawHtml`, `links`, `screenshot`, `images`,
-`summary`, `json`, and `deterministicJson`. The two JSON formats accept `schema`
+`summary`, `attributes`, `question`, `highlights`, `json`, and
+`deterministicJson`. The two JSON formats accept `schema`
 and `prompt`; `json` uses the configured OpenAI-compatible provider and falls
 back to deterministic extraction when no provider is configured. Screenshot
 format objects support `fullPage`, `quality`, and a bounded
@@ -44,6 +45,10 @@ crawl jobs. Caller-supplied `headers` are forwarded by direct scrape and search
 scraping and are included in the cache key. `includeTags`, `excludeTags`,
 `onlyMainContent`, and `onlyCleanContent` are applied when deriving Markdown,
 content HTML, and links from either a fresh or cached raw HTML snapshot.
+`attributes` accepts Firecrawl selector/attribute pairs and returns every
+matching value. `question` returns `answer`, and `highlights` returns
+`highlights`; both use the configured OpenAI-compatible provider and fall back
+to deterministic relevant-passage selection when no provider is configured.
 
 Map returns the current link-object shape and uses Firecrawl's current defaults
 (`limit=5000`, `includeSubdomains=true`). Crawl defaults to `limit=10000`, does

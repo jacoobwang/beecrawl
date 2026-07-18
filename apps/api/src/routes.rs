@@ -270,6 +270,7 @@ async fn firecrawl_v2_scrape(
         request.mobile,
     )?;
     let requested_formats = request.formats;
+    validate_firecrawl_enrichment_formats(&requested_formats)?;
     let screenshot = firecrawl_screenshot_options(&requested_formats)?;
     let content = ContentOptions {
         only_main_content: request.only_main_content.unwrap_or(true),
@@ -281,7 +282,7 @@ async fn firecrawl_v2_scrape(
     let requested_raw_html = fetch_formats.iter().any(|format| format == "rawHtml");
     if requested_formats
         .iter()
-        .any(|format| format.name() == "images")
+        .any(|format| matches!(format.name(), "images" | "attributes"))
         && !requested_raw_html
     {
         fetch_formats.push("rawHtml".to_string());
@@ -993,6 +994,29 @@ async fn enrich_firecrawl_document(
             "summary" => {
                 fields.insert("summary".to_string(), json!(summarize_markdown(&markdown)));
             }
+            "attributes" => {
+                let selectors = firecrawl_attribute_selectors(format)?;
+                let attributes = raw_html
+                    .as_deref()
+                    .map(|html| extract_attributes(html, &selectors))
+                    .transpose()?
+                    .unwrap_or_default();
+                fields.insert("attributes".to_string(), json!(attributes));
+            }
+            "question" => {
+                let question = required_format_string(format, "question")?;
+                let answer =
+                    answer_firecrawl_query(state, source_url, &markdown, question, "answer")
+                        .await?;
+                fields.insert("answer".to_string(), json!(answer));
+            }
+            "highlights" => {
+                let query = required_format_string(format, "query")?;
+                let highlights =
+                    answer_firecrawl_query(state, source_url, &markdown, query, "highlights")
+                        .await?;
+                fields.insert("highlights".to_string(), json!(highlights));
+            }
             "json" | "deterministicJson" => {
                 let schema = format
                     .option("schema")
@@ -1025,6 +1049,205 @@ async fn enrich_firecrawl_document(
         fields.remove("rawHtml");
     }
     Ok(())
+}
+
+fn validate_firecrawl_enrichment_formats(formats: &[FirecrawlFormat]) -> Result<(), ApiError> {
+    for format in formats {
+        let allowed: &[&str] = match format.name() {
+            "attributes" => &["selectors"],
+            "question" => &["question"],
+            "highlights" => &["query"],
+            _ => continue,
+        };
+        let unsupported = format
+            .options
+            .keys()
+            .filter(|key| !allowed.contains(&key.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !unsupported.is_empty() {
+            return Err(ApiError::InvalidRequest(format!(
+                "Unsupported {} options: {}",
+                format.name(),
+                unsupported.join(", ")
+            )));
+        }
+        match format.name() {
+            "attributes" => {
+                firecrawl_attribute_selectors(format)?;
+            }
+            "question" => {
+                required_format_string(format, "question")?;
+            }
+            "highlights" => {
+                required_format_string(format, "query")?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn required_format_string<'a>(
+    format: &'a FirecrawlFormat,
+    option: &str,
+) -> Result<&'a str, ApiError> {
+    format
+        .option(option)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty() && value.chars().count() <= 10_000)
+        .ok_or_else(|| {
+            ApiError::InvalidRequest(format!(
+                "{}.{} must be a non-empty string of at most 10000 characters",
+                format.name(),
+                option
+            ))
+        })
+}
+
+#[derive(serde::Serialize)]
+struct FirecrawlAttributeResult {
+    selector: String,
+    attribute: String,
+    values: Vec<String>,
+}
+
+fn firecrawl_attribute_selectors(
+    format: &FirecrawlFormat,
+) -> Result<Vec<(String, String)>, ApiError> {
+    let selectors = format
+        .option("selectors")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            ApiError::InvalidRequest("attributes.selectors must be an array".to_string())
+        })?;
+    selectors
+        .iter()
+        .map(|selector| {
+            let object = selector.as_object().ok_or_else(|| {
+                ApiError::InvalidRequest("Each attributes selector must be an object".to_string())
+            })?;
+            if object.len() != 2
+                || !object.contains_key("selector")
+                || !object.contains_key("attribute")
+            {
+                return Err(ApiError::InvalidRequest(
+                    "Each attributes selector must contain only selector and attribute".to_string(),
+                ));
+            }
+            let css = object
+                .get("selector")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ApiError::InvalidRequest(
+                        "attributes selector must be a non-empty string".to_string(),
+                    )
+                })?;
+            let attribute = object
+                .get("attribute")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ApiError::InvalidRequest(
+                        "attributes attribute must be a non-empty string".to_string(),
+                    )
+                })?;
+            scraper::Selector::parse(css)
+                .map_err(|_| ApiError::InvalidRequest(format!("Invalid CSS selector: {css}")))?;
+            Ok((css.to_string(), attribute.to_string()))
+        })
+        .collect()
+}
+
+fn extract_attributes(
+    html: &str,
+    selectors: &[(String, String)],
+) -> Result<Vec<FirecrawlAttributeResult>, ApiError> {
+    let document = scraper::Html::parse_document(html);
+    selectors
+        .iter()
+        .map(|(css, attribute)| {
+            let selector = scraper::Selector::parse(css)
+                .map_err(|_| ApiError::InvalidRequest(format!("Invalid CSS selector: {css}")))?;
+            let data_attribute =
+                (!attribute.starts_with("data-")).then(|| format!("data-{attribute}"));
+            let values = document
+                .select(&selector)
+                .filter_map(|element| {
+                    element.value().attr(attribute).or_else(|| {
+                        data_attribute
+                            .as_deref()
+                            .and_then(|name| element.value().attr(name))
+                    })
+                })
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .collect();
+            Ok(FirecrawlAttributeResult {
+                selector: css.clone(),
+                attribute: attribute.clone(),
+                values,
+            })
+        })
+        .collect()
+}
+
+async fn answer_firecrawl_query(
+    state: &AppState,
+    source_url: &str,
+    markdown: &str,
+    query: &str,
+    field: &str,
+) -> Result<String, ApiError> {
+    if let Some(provider) = llm::resolve_provider(None)? {
+        let schema = json!({
+            "type": "object",
+            "properties": { (field): { "type": "string" } },
+            "required": [field]
+        });
+        let instructions = if field == "answer" {
+            format!("Answer this question using only the page content: {query}")
+        } else {
+            format!("Return the page passages most relevant to this query: {query}")
+        };
+        let value = llm::extract_structured_value(
+            &state.client,
+            &provider,
+            &[source_url.to_string()],
+            &schema,
+            markdown,
+            Some(&instructions),
+        )
+        .await?;
+        if let Some(result) = value.get(field).and_then(serde_json::Value::as_str) {
+            return Ok(result.to_string());
+        }
+    }
+    Ok(relevant_markdown_passage(markdown, query))
+}
+
+fn relevant_markdown_passage(markdown: &str, query: &str) -> String {
+    let terms = query
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|term| term.chars().count() >= 3)
+        .map(str::to_lowercase)
+        .collect::<std::collections::HashSet<_>>();
+    markdown
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|passage| !passage.is_empty() && !passage.starts_with('#'))
+        .max_by_key(|passage| {
+            let lowercase = passage.to_lowercase();
+            terms
+                .iter()
+                .filter(|term| lowercase.contains(*term))
+                .count()
+        })
+        .unwrap_or_else(|| markdown.trim())
+        .chars()
+        .take(2_000)
+        .collect()
 }
 
 fn deterministic_json(
@@ -1573,6 +1796,10 @@ mod tests {
             "formats": [
                 "images",
                 "summary",
+                { "type": "attributes", "selectors": [
+                    { "selector": "#hero", "attribute": "data-name" },
+                    { "selector": "img", "attribute": "alt" }
+                ]},
                 { "type": "deterministicJson", "schema": {
                     "type": "object",
                     "properties": { "title": { "type": "string" } }
@@ -1587,7 +1814,7 @@ mod tests {
         };
         let mut document = json!({
             "markdown": "# Example\n\nA useful summary paragraph.",
-            "rawHtml": "<html><body><img src='/hero.png'></body></html>",
+            "rawHtml": "<html><body><img id='hero' src='/hero.png' alt='Bee' data-name='worker'></body></html>",
             "metadata": { "title": "Example" }
         });
         enrich_firecrawl_document(
@@ -1602,7 +1829,49 @@ mod tests {
         assert_eq!(document["images"][0], "https://example.com/hero.png");
         assert_eq!(document["summary"], "A useful summary paragraph.");
         assert_eq!(document["json"]["title"], "Example");
+        assert_eq!(document["attributes"][0]["values"][0], "worker");
+        assert_eq!(document["attributes"][1]["values"][0], "Bee");
         assert!(document.get("rawHtml").is_none());
+    }
+
+    #[test]
+    fn firecrawl_v2_validates_structured_format_options() {
+        let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+            "url": "https://example.com",
+            "formats": [
+                { "type": "question", "question": "What is BeeCrawl?" },
+                { "type": "highlights", "query": "browser scraping" },
+                { "type": "attributes", "selectors": [
+                    { "selector": "a[href]", "attribute": "href" }
+                ]}
+            ]
+        }))
+        .unwrap();
+        validate_firecrawl_enrichment_formats(&request.formats).unwrap();
+
+        for format in [
+            json!({ "type": "question", "question": "" }),
+            json!({ "type": "highlights", "query": "ok", "ignored": true }),
+            json!({ "type": "attributes", "selectors": [
+                { "selector": "[", "attribute": "href" }
+            ]}),
+        ] {
+            let request = serde_json::from_value::<FirecrawlV2ScrapeRequest>(json!({
+                "url": "https://example.com",
+                "formats": [format]
+            }))
+            .unwrap();
+            assert!(validate_firecrawl_enrichment_formats(&request.formats).is_err());
+        }
+    }
+
+    #[test]
+    fn firecrawl_query_fallback_selects_the_most_relevant_passage() {
+        let markdown = "# BeeCrawl\n\nA general introduction.\n\nBrowser scraping renders JavaScript pages reliably.";
+        assert_eq!(
+            relevant_markdown_passage(markdown, "How does browser scraping work?"),
+            "Browser scraping renders JavaScript pages reliably."
+        );
     }
 
     #[test]
