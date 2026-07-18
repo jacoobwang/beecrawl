@@ -23,7 +23,7 @@ use crate::models::{
 use crate::{
     cache::CacheStore,
     crawl::{CrawlStore, CrawlStoreError},
-    llm, search, web_extract,
+    llm, search, web_extract, webhook,
 };
 
 #[derive(Clone)]
@@ -477,6 +477,9 @@ async fn firecrawl_v2_crawl(
     validate_firecrawl_crawl_defaults(&request)?;
     let delay_ms = firecrawl_delay_ms(request.delay)?;
     let max_concurrency = firecrawl_max_concurrency(request.max_concurrency)?;
+    if let Some(config) = request.webhook.as_ref() {
+        webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
+    }
     let scrape = request.scrape_options.unwrap_or_default();
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -501,6 +504,7 @@ async fn firecrawl_v2_crawl(
         .enqueue(CrawlRequest {
             url: request.url,
             idempotency_key,
+            webhook: request.webhook,
             limit: request.limit,
             max_depth: request.max_discovery_depth,
             include_paths: request.include_paths,
@@ -535,6 +539,9 @@ async fn firecrawl_v2_batch_scrape(
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
     let max_concurrency = firecrawl_max_concurrency(request.max_concurrency)?;
+    if let Some(config) = request.webhook.as_ref() {
+        webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
+    }
     let scrape = request.scrape_options;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
@@ -559,6 +566,7 @@ async fn firecrawl_v2_batch_scrape(
         .enqueue_batch(BatchScrapeRequest {
             urls: request.urls,
             max_concurrency,
+            webhook: request.webhook,
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
@@ -1676,6 +1684,21 @@ mod tests {
         assert_eq!(crawl.delay, None);
         assert_eq!(crawl.max_concurrency, None);
         assert_eq!(crawl.deduplicate_similar_urls, None);
+        assert!(crawl.webhook.is_none());
+
+        let webhook_crawl: FirecrawlV2CrawlRequest = serde_json::from_value(json!({
+            "url": "https://example.com",
+            "webhook": {
+                "url": "https://hooks.example.com/crawl",
+                "headers": { "X-Tenant": "bee" },
+                "metadata": { "environment": "test" },
+                "events": ["started", "page", "completed"]
+            }
+        }))
+        .unwrap();
+        let webhook = webhook_crawl.webhook.unwrap().config();
+        assert_eq!(webhook.headers["X-Tenant"], "bee");
+        assert_eq!(webhook.metadata["environment"], "test");
 
         assert_eq!(firecrawl_delay_ms(Some(0.25)).unwrap(), 250);
         assert_eq!(firecrawl_max_concurrency(Some(3)).unwrap(), 3);

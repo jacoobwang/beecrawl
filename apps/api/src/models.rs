@@ -185,6 +185,7 @@ pub struct FirecrawlV2CrawlRequest {
     pub delay: Option<f64>,
     #[serde(rename = "maxConcurrency")]
     pub max_concurrency: Option<usize>,
+    pub webhook: Option<FirecrawlWebhook>,
     #[serde(rename = "scrapeOptions", default)]
     pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
 }
@@ -197,6 +198,7 @@ pub struct FirecrawlV2BatchScrapeRequest {
     pub origin: Option<String>,
     #[serde(rename = "maxConcurrency")]
     pub max_concurrency: Option<usize>,
+    pub webhook: Option<FirecrawlWebhook>,
     #[serde(flatten)]
     pub scrape_options: FirecrawlV2ScrapeOptions,
 }
@@ -411,6 +413,8 @@ pub struct CrawlRequest {
     pub url: String,
     #[serde(skip)]
     pub idempotency_key: Option<String>,
+    #[serde(default)]
+    pub webhook: Option<FirecrawlWebhook>,
     #[serde(default = "default_crawl_limit")]
     pub limit: usize,
     #[serde(rename = "maxDepth", default = "default_crawl_max_depth")]
@@ -461,6 +465,8 @@ pub struct BatchScrapeRequest {
     pub urls: Vec<String>,
     #[serde(rename = "maxConcurrency", default = "default_job_max_concurrency")]
     pub max_concurrency: usize,
+    #[serde(default)]
+    pub webhook: Option<FirecrawlWebhook>,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
     #[serde(default)]
@@ -485,6 +491,46 @@ pub struct CrawlEnqueueResponse {
     pub id: String,
     pub url: String,
     pub status: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum FirecrawlWebhook {
+    Url(String),
+    Config(FirecrawlWebhookConfig),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct FirecrawlWebhookConfig {
+    pub url: String,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+    #[serde(default = "default_webhook_events")]
+    pub events: Vec<String>,
+}
+
+impl FirecrawlWebhook {
+    pub fn config(&self) -> FirecrawlWebhookConfig {
+        match self {
+            Self::Url(url) => FirecrawlWebhookConfig {
+                url: url.clone(),
+                headers: HashMap::new(),
+                metadata: HashMap::new(),
+                events: default_webhook_events(),
+            },
+            Self::Config(config) => config.clone(),
+        }
+    }
+}
+
+fn default_webhook_events() -> Vec<String> {
+    ["completed", "failed", "page", "started"]
+        .into_iter()
+        .map(str::to_string)
+        .collect()
 }
 
 #[derive(Debug, Serialize, Clone)]

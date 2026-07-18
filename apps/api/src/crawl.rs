@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use thiserror::Error;
@@ -13,8 +13,8 @@ use crate::cache::CacheStore;
 use crate::models::{
     ActiveCrawl, ActiveCrawlsResponse, BatchScrapeEnqueueResponse, BatchScrapeRequest,
     CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
-    CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse, WebExtractMapRequest,
-    WebExtractScrapeRequest, WebExtractScrapeResponse,
+    CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse, FirecrawlWebhook,
+    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
 
@@ -124,7 +124,7 @@ impl CrawlStore {
             }
         }
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, now() + make_interval(days => $23))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, webhook, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now() + make_interval(days => $24))",
         )
         .bind(id)
         .bind(&url)
@@ -143,6 +143,12 @@ impl CrawlStore {
         .bind(request.ignore_query_parameters)
         .bind(request.ignore_robots_txt)
         .bind(&request.robots_user_agent)
+        .bind(
+            request
+                .webhook
+                .as_ref()
+                .map(|value| serde_json::to_value(value).expect("webhook serializes")),
+        )
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
@@ -198,12 +204,18 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, now() + make_interval(days => $10))",
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, webhook, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(days => $11))",
         )
         .bind(id)
         .bind(&urls[0])
         .bind(urls.len() as i64)
         .bind(request.max_concurrency as i32)
+        .bind(
+            request
+                .webhook
+                .as_ref()
+                .map(|value| serde_json::to_value(value).expect("webhook serializes")),
+        )
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
@@ -429,6 +441,38 @@ impl CrawlStore {
         })
     }
 
+    async fn claim_job_webhook(
+        &self,
+        crawl_id: Uuid,
+        event: &str,
+    ) -> Result<Option<JobWebhook>, CrawlStoreError> {
+        let query = match event {
+            "started" => {
+                "UPDATE crawl_jobs SET webhook_started_at = now() WHERE id = $1 AND webhook IS NOT NULL AND webhook_started_at IS NULL RETURNING job_type, webhook"
+            }
+            "completed" => {
+                "UPDATE crawl_jobs SET webhook_completed_at = now() WHERE id = $1 AND webhook IS NOT NULL AND webhook_completed_at IS NULL AND status = 'completed' RETURNING job_type, webhook"
+            }
+            _ => return Ok(None),
+        };
+        let row = sqlx::query(query)
+            .bind(crawl_id)
+            .fetch_optional(self.pool()?)
+            .await?;
+        decode_job_webhook(row)
+    }
+
+    async fn claim_page_webhook(
+        &self,
+        task: &ClaimedTask,
+    ) -> Result<Option<JobWebhook>, CrawlStoreError> {
+        let row = sqlx::query("UPDATE crawl_tasks AS tasks SET webhook_delivered_at = now() FROM crawl_jobs AS jobs WHERE tasks.id = $1 AND tasks.crawl_id = jobs.id AND jobs.webhook IS NOT NULL AND tasks.webhook_delivered_at IS NULL AND tasks.status IN ('completed', 'failed') RETURNING jobs.job_type, jobs.webhook")
+            .bind(task.id)
+            .fetch_optional(self.pool()?)
+            .await?;
+        decode_job_webhook(row)
+    }
+
     async fn finish_success(
         &self,
         task: &ClaimedTask,
@@ -545,22 +589,29 @@ async fn process_task(
     if options.cancelled {
         return Ok(());
     }
-    if !url_allowed_by_patterns(
+    if let Some(config) = store.claim_job_webhook(task.crawl_id, "started").await? {
+        let _ = crate::webhook::deliver(
+            client,
+            &config.webhook,
+            &config.job_type,
+            task.crawl_id,
+            "started",
+            true,
+            json!([]),
+            None,
+        )
+        .await;
+    }
+    let policy_error = if !url_allowed_by_patterns(
         &task.url,
         &options.include_paths,
         &options.exclude_paths,
         options.regex_on_full_url,
     ) {
-        return store
-            .finish_failure(
-                &task,
-                WebExtractError::BlockedByPolicy(
-                    "URL is excluded by includePaths or excludePaths".to_string(),
-                ),
-            )
-            .await;
-    }
-    if !options.ignore_robots_txt
+        Some(WebExtractError::BlockedByPolicy(
+            "URL is excluded by includePaths or excludePaths".to_string(),
+        ))
+    } else if !options.ignore_robots_txt
         && !web_extract::robots_allows(
             client,
             &task.url,
@@ -569,32 +620,36 @@ async fn process_task(
         )
         .await
     {
-        return store
-            .finish_failure(
-                &task,
-                WebExtractError::BlockedByPolicy("robots.txt disallows URL".to_string()),
-            )
-            .await;
-    }
-    let page = web_extract::scrape_with_cache(
-        client,
-        cache,
-        WebExtractScrapeRequest {
-            url: task.url.clone(),
-            formats: vec!["markdown".to_string()],
-            location: None,
-            timeout_seconds: options.timeout_seconds,
-            wait_for_ms: options.wait_for_ms,
-            use_browser: options.use_browser.clone(),
-            skip_tls_verification: options.skip_tls_verification,
-            headers: std::collections::HashMap::new(),
-            screenshot: None,
-            content: None,
-        },
-    )
-    .await;
+        Some(WebExtractError::BlockedByPolicy(
+            "robots.txt disallows URL".to_string(),
+        ))
+    } else {
+        None
+    };
+    let page = if let Some(error) = policy_error {
+        Err(error)
+    } else {
+        web_extract::scrape_with_cache(
+            client,
+            cache,
+            WebExtractScrapeRequest {
+                url: task.url.clone(),
+                formats: vec!["markdown".to_string()],
+                location: None,
+                timeout_seconds: options.timeout_seconds,
+                wait_for_ms: options.wait_for_ms,
+                use_browser: options.use_browser.clone(),
+                skip_tls_verification: options.skip_tls_verification,
+                headers: std::collections::HashMap::new(),
+                screenshot: None,
+                content: None,
+            },
+        )
+        .await
+    };
     match page {
         Ok(page) => {
+            let webhook_document = webhook_document(&page);
             let links = if options.job_type == "crawl"
                 && task.depth < options.max_depth
                 && !(options.sitemap == "only" && task.depth > 0)
@@ -636,10 +691,53 @@ async fn process_task(
             } else {
                 vec![]
             };
-            store.finish_success(&task, page, links).await
+            store.finish_success(&task, page, links).await?;
+            if let Some(config) = store.claim_page_webhook(&task).await? {
+                let _ = crate::webhook::deliver(
+                    client,
+                    &config.webhook,
+                    &config.job_type,
+                    task.crawl_id,
+                    "page",
+                    true,
+                    json!([webhook_document]),
+                    None,
+                )
+                .await;
+            }
         }
-        Err(error) => store.finish_failure(&task, error).await,
+        Err(error) => {
+            let message = error.to_string();
+            store.finish_failure(&task, error).await?;
+            if let Some(config) = store.claim_page_webhook(&task).await? {
+                let _ = crate::webhook::deliver(
+                    client,
+                    &config.webhook,
+                    &config.job_type,
+                    task.crawl_id,
+                    "page",
+                    false,
+                    json!([]),
+                    Some(&message),
+                )
+                .await;
+            }
+        }
     }
+    if let Some(config) = store.claim_job_webhook(task.crawl_id, "completed").await? {
+        let _ = crate::webhook::deliver(
+            client,
+            &config.webhook,
+            &config.job_type,
+            task.crawl_id,
+            "completed",
+            true,
+            json!([]),
+            None,
+        )
+        .await;
+    }
+    Ok(())
 }
 
 struct ClaimedTask {
@@ -670,6 +768,44 @@ struct CrawlOptions {
     use_browser: String,
     skip_tls_verification: bool,
     cancelled: bool,
+}
+
+struct JobWebhook {
+    job_type: String,
+    webhook: FirecrawlWebhook,
+}
+
+fn decode_job_webhook(
+    row: Option<sqlx::postgres::PgRow>,
+) -> Result<Option<JobWebhook>, CrawlStoreError> {
+    row.map(|row| {
+        let value: Value = row.try_get("webhook")?;
+        let webhook = serde_json::from_value(value)
+            .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?;
+        Ok(JobWebhook {
+            job_type: row.try_get("job_type")?,
+            webhook,
+        })
+    })
+    .transpose()
+}
+
+fn webhook_document(page: &WebExtractScrapeResponse) -> Value {
+    json!({
+        "markdown": page.markdown,
+        "html": page.html,
+        "rawHtml": page.raw_html,
+        "links": page.links,
+        "screenshot": page.screenshot,
+        "metadata": {
+            "title": page.metadata.title,
+            "language": page.metadata.language,
+            "sourceURL": page.url,
+            "url": page.final_url,
+            "statusCode": page.metadata.status_code,
+            "scrapeId": page.request_id,
+        }
+    })
 }
 
 fn validate_path_patterns(patterns: &[String], field: &str) -> Result<(), CrawlStoreError> {
@@ -806,6 +942,7 @@ mod tests {
         CrawlRequest {
             url: "https://example.com".to_string(),
             idempotency_key: None,
+            webhook: None,
             limit: 10,
             max_depth: 0,
             include_paths: Vec::new(),
@@ -926,6 +1063,7 @@ mod tests {
                     "https://example.com/docs".to_string(),
                 ],
                 max_concurrency: 3,
+                webhook: None,
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),
@@ -968,6 +1106,7 @@ mod tests {
                     "https://example.com/two".to_string(),
                 ],
                 max_concurrency: 1,
+                webhook: None,
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),
@@ -1035,6 +1174,56 @@ mod tests {
             store.enqueue(second).await,
             Err(CrawlStoreError::IdempotencyConflict(_))
         ));
+        reset(&store).await;
+    }
+
+    #[tokio::test]
+    async fn postgres_claims_each_webhook_lifecycle_event_once() {
+        let Some(store) = store() else { return };
+        let _guard = DATABASE_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        reset(&store).await;
+        let mut crawl_request = request(0);
+        crawl_request.webhook = Some(FirecrawlWebhook::Config(
+            crate::models::FirecrawlWebhookConfig {
+                url: "https://hooks.example.com/crawl".to_string(),
+                headers: std::collections::HashMap::new(),
+                metadata: std::collections::HashMap::new(),
+                events: vec![
+                    "started".to_string(),
+                    "page".to_string(),
+                    "completed".to_string(),
+                ],
+            },
+        ));
+        let crawl = store.enqueue(crawl_request).await.unwrap();
+        let crawl_id = Uuid::parse_str(&crawl.id).unwrap();
+        let task = store.claim_task("worker").await.unwrap().unwrap();
+        assert!(store
+            .claim_job_webhook(crawl_id, "started")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .claim_job_webhook(crawl_id, "started")
+            .await
+            .unwrap()
+            .is_none());
+        store
+            .finish_success(&task, page("https://example.com"), vec![])
+            .await
+            .unwrap();
+        assert!(store.claim_page_webhook(&task).await.unwrap().is_some());
+        assert!(store.claim_page_webhook(&task).await.unwrap().is_none());
+        assert!(store
+            .claim_job_webhook(crawl_id, "completed")
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .claim_job_webhook(crawl_id, "completed")
+            .await
+            .unwrap()
+            .is_none());
         reset(&store).await;
     }
 

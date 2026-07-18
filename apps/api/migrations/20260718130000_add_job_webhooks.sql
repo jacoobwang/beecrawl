@@ -1,0 +1,7 @@
+ALTER TABLE crawl_jobs
+  ADD COLUMN IF NOT EXISTS webhook JSONB,
+  ADD COLUMN IF NOT EXISTS webhook_started_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS webhook_completed_at TIMESTAMPTZ;
+
+ALTER TABLE crawl_tasks
+  ADD COLUMN IF NOT EXISTS webhook_delivered_at TIMESTAMPTZ;

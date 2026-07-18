@@ -76,6 +76,12 @@ database-enforced per-job key.
 `POST /v2/crawl` accepts a UUID `x-idempotency-key`. The first request reserves
 the key atomically; reuse returns HTTP 409 even after the associated crawl has
 expired.
+Crawler and batch requests accept Firecrawl's string or object `webhook`
+configuration and emit `started`, `page`, and `completed` lifecycle events.
+Set `BEECRAWL_WEBHOOK_HMAC_SECRET`; every JSON request is signed as
+`X-Firecrawl-Signature: sha256=<HMAC-SHA256>` and custom metadata and headers
+are preserved. Event claims are persisted so distributed workers do not emit
+duplicate lifecycle callbacks.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
