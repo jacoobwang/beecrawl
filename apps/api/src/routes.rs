@@ -427,7 +427,8 @@ async fn firecrawl_v2_map(
     require_auth(&headers)?;
     let Json(request) = firecrawl_json(payload)?;
     let response = web_extract::map_site(&state.client, request.into()).await?;
-    Ok(Json(json!({ "success": true, "links": response.links })).into_response())
+    let links = firecrawl_map_links(response.links);
+    Ok(Json(json!({ "success": true, "id": response.request_id, "links": links })).into_response())
 }
 
 async fn firecrawl_v2_crawl(
@@ -682,10 +683,12 @@ async fn firecrawl_v2_search(
             "Firecrawl v2 search limit must be between 1 and 100".to_string(),
         ));
     }
-    if request.timeout.is_some_and(|timeout| timeout != 300_000) {
+    if request
+        .timeout
+        .is_some_and(|timeout| !(1_000..=300_000).contains(&timeout))
+    {
         return Err(ApiError::InvalidRequest(
-            "BeeCrawl search currently supports only the Firecrawl default timeout=300000"
-                .to_string(),
+            "Firecrawl v2 search timeout must be between 1000 and 300000 milliseconds".to_string(),
         ));
     }
 
@@ -859,6 +862,10 @@ fn firecrawl_search_result(result: crate::models::SearchResult) -> serde_json::V
             "description": result.description,
         })
     }
+}
+
+fn firecrawl_map_links(links: Vec<String>) -> Vec<serde_json::Value> {
+    links.into_iter().map(|url| json!({ "url": url })).collect()
 }
 
 fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
@@ -1164,6 +1171,40 @@ mod tests {
         assert_eq!(request.scrape_options.formats, ["markdown"]);
         assert_eq!(request.scrape_options.wait_for_ms, 250);
         assert_eq!(request.scrape_options.timeout, 45_000);
+    }
+
+    #[test]
+    fn firecrawl_v2_defaults_match_current_sdk_contract() {
+        let crawl: FirecrawlV2CrawlRequest = serde_json::from_value(json!({
+            "url": "https://example.com"
+        }))
+        .unwrap();
+        assert_eq!(crawl.limit, 10_000);
+        assert_eq!(crawl.max_discovery_depth, 10_000);
+        assert!(!crawl.ignore_query_parameters);
+
+        let map: FirecrawlV2MapRequest = serde_json::from_value(json!({
+            "url": "https://example.com"
+        }))
+        .unwrap();
+        assert_eq!(map.limit, 5_000);
+        assert!(map.include_subdomains);
+
+        let search: FirecrawlV2SearchRequest = serde_json::from_value(json!({
+            "query": "beecrawl"
+        }))
+        .unwrap();
+        assert_eq!(search.limit, 10);
+    }
+
+    #[test]
+    fn firecrawl_v2_map_returns_link_objects() {
+        let links = firecrawl_map_links(vec![
+            "https://example.com/".to_string(),
+            "https://example.com/docs".to_string(),
+        ]);
+        assert_eq!(links[0], json!({ "url": "https://example.com/" }));
+        assert_eq!(links[1]["url"], "https://example.com/docs");
     }
 
     #[tokio::test]

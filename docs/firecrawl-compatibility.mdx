@@ -28,7 +28,8 @@ POST   /v2/search
 Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
 routes accept Firecrawl camelCase fields and return a `success` envelope.
 
-The scrape adapter accepts `markdown`, `html`, `rawHtml`, `links`, and
+The compatibility contract is pinned to `firecrawl-py==4.32.1`. The scrape
+adapter accepts `markdown`, `html`, `rawHtml`, `links`, and
 `screenshot` formats. Format-specific options and unsupported formats such as
 `json` are rejected with JSON `400` responses instead of being silently
 ignored. The defaults emitted by `firecrawl-py` 4.x are accepted when they
@@ -37,8 +38,14 @@ match BeeCrawl's behavior. Unsupported behavior-changing values, including
 `skipTlsVerification` is supported for direct scrape, search scraping, and
 crawl jobs.
 
-To smoke-test the adapter through the official Python SDK while a local API is
-running:
+Map returns the current link-object shape and uses Firecrawl's current defaults
+(`limit=5000`, `includeSubdomains=true`). Crawl defaults to `limit=10000`, does
+not remove query parameters unless requested, and treats an omitted discovery
+depth as effectively unbounded within the page limit. Search defaults to ten
+results and accepts timeouts from one second through five minutes.
+
+To smoke-test scrape, map, parse, search, crawl, batch, and error handling
+through the pinned official Python SDK while a local API is running:
 
 ```bash
 make firecrawl-contract

@@ -37,7 +37,7 @@ playwright-install:
 	$(UV) run --extra browser playwright install chromium
 
 firecrawl-contract:
-	$(UV) run --with firecrawl-py python scripts/firecrawl_v2_contract.py --api-url http://$(HOST):$(PORT)
+	$(UV) run --with firecrawl-py==4.32.1 python scripts/firecrawl_v2_contract.py --api-url http://$(HOST):$(PORT)
 
 python-test:
 	$(UV) run --extra dev pytest -q

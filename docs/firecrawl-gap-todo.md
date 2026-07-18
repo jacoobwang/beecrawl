@@ -18,11 +18,11 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 2. Current Firecrawl SDK contract
 
-- [ ] Pin a supported `firecrawl-py` version in the contract environment.
-- [ ] Cover scrape, map, crawl, batch, search, parse, and error responses.
-- [ ] Align current v2 defaults for map, crawl, search, and cache behavior.
-- [ ] Return map link objects (`url`, optional `title` and `description`).
-- [ ] Document intentional incompatibilities and reject unsupported semantics.
+- [x] Pin a supported `firecrawl-py` version in the contract environment.
+- [x] Cover scrape, map, crawl, batch, search, parse, and error responses.
+- [x] Align current v2 defaults for map, crawl, search, and cache behavior.
+- [x] Return map link objects (`url`, optional `title` and `description`).
+- [x] Document intentional incompatibilities and reject unsupported semantics.
 
 ## 3. Scrape formats and content controls
 

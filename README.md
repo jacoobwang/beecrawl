@@ -158,8 +158,8 @@ Per-request provider overrides are also supported with `provider` or `llm`:
 
 ### Firecrawl v2 compatibility
 
-The API also exposes Firecrawl v2-compatible routes for applications using
-`firecrawl-py` 4.x:
+The API also exposes Firecrawl v2-compatible routes for applications using the
+pinned `firecrawl-py==4.32.1` contract:
 
 ```text
 POST   /v2/scrape
@@ -184,7 +184,7 @@ Set the Firecrawl SDK `api_url` to the BeeCrawl base URL. These routes accept
 Firecrawl camelCase request fields and return its `success` response envelope.
 Unsupported fields, format-specific options, and behavior-changing option
 values return JSON `400` responses instead of being silently ignored. The
-default scrape options emitted by `firecrawl-py` 4.x are accepted, including
+default scrape options emitted by `firecrawl-py` 4.32.1 are accepted, including
 working `skipTlsVerification` support. Run `make firecrawl-contract` against a
 local API to verify the adapter through the official Python SDK.
 The v2 extract adapter supports multiple URLs and JSON Schema objects. Search

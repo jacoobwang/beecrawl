@@ -113,13 +113,13 @@ pub struct FirecrawlV2CrawlRequest {
     pub url: String,
     #[serde(default)]
     pub origin: Option<String>,
-    #[serde(default = "default_crawl_limit")]
+    #[serde(default = "default_firecrawl_crawl_limit")]
     pub limit: usize,
     #[serde(
         rename = "maxDiscoveryDepth",
         alias = "max_depth",
         alias = "maxDepth",
-        default = "default_crawl_max_depth"
+        default = "default_firecrawl_crawl_max_depth"
     )]
     pub max_discovery_depth: usize,
     #[serde(rename = "allowSubdomains", default)]
@@ -136,10 +136,7 @@ pub struct FirecrawlV2CrawlRequest {
     pub regex_on_full_url: Option<bool>,
     #[serde(rename = "zeroDataRetention")]
     pub zero_data_retention: Option<bool>,
-    #[serde(
-        rename = "ignoreQueryParameters",
-        default = "default_ignore_query_parameters"
-    )]
+    #[serde(rename = "ignoreQueryParameters", default)]
     pub ignore_query_parameters: bool,
     #[serde(rename = "scrapeOptions", default)]
     pub scrape_options: Option<FirecrawlV2ScrapeOptions>,
@@ -204,7 +201,7 @@ pub struct FirecrawlV2SearchRequest {
     pub query: String,
     #[serde(default)]
     pub origin: Option<String>,
-    #[serde(default = "default_search_limit")]
+    #[serde(default = "default_firecrawl_search_limit")]
     pub limit: usize,
     pub timeout: Option<u64>,
     #[serde(default)]
@@ -242,9 +239,12 @@ pub struct FirecrawlV2MapRequest {
     #[serde(default)]
     pub origin: Option<String>,
     pub search: Option<String>,
-    #[serde(default = "default_map_limit")]
+    #[serde(default = "default_firecrawl_map_limit")]
     pub limit: usize,
-    #[serde(rename = "includeSubdomains", default)]
+    #[serde(
+        rename = "includeSubdomains",
+        default = "default_firecrawl_include_subdomains"
+    )]
     pub include_subdomains: bool,
     #[serde(default = "default_sitemap")]
     pub sitemap: String,
@@ -662,12 +662,24 @@ fn default_map_limit() -> usize {
     100
 }
 
+fn default_firecrawl_map_limit() -> usize {
+    5_000
+}
+
 fn default_crawl_limit() -> usize {
     100
 }
 
+fn default_firecrawl_crawl_limit() -> usize {
+    10_000
+}
+
 fn default_crawl_max_depth() -> usize {
     2
+}
+
+fn default_firecrawl_crawl_max_depth() -> usize {
+    10_000
 }
 
 fn default_crawl_max_retries() -> usize {
@@ -688,6 +700,14 @@ fn default_ignore_query_parameters() -> bool {
 
 fn default_search_limit() -> usize {
     5
+}
+
+fn default_firecrawl_search_limit() -> usize {
+    10
+}
+
+fn default_firecrawl_include_subdomains() -> bool {
+    true
 }
 
 fn default_lang() -> String {
