@@ -62,10 +62,10 @@ pub async fn deliver(
     if !config.events.iter().any(|configured| configured == event) {
         return Ok(());
     }
-    let namespace = if job_type == "batch_scrape" {
-        "batch_scrape"
-    } else {
-        "crawl"
+    let namespace = match job_type {
+        "batch_scrape" => "batch_scrape",
+        "monitor" => "monitor",
+        _ => "crawl",
     };
     let mut payload = json!({
         "success": success,

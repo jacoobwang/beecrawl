@@ -192,10 +192,25 @@ Browser-rendered scrape results retain a four-hour handoff snapshot. Use the
 returned `metadata.scrapeId` with `POST /v2/scrape/{scrapeId}/interact` to
 create a session initialized with the final URL, cookies, and browser storage.
 
+Agent workflows are Postgres-backed asynchronous jobs. Create one with
+`POST /v2/agent` using `prompt`, optional seed `urls`, and `maxCredits`; poll or
+cancel it at `/v2/agent/{id}`. Without seeds the prompt drives web search. Each fetched source consumes one credit, source
+documents and errors remain visible while the job runs, and ownership is
+isolated by API key.
+
+Monitors use `POST /v2/monitor` with `name`, `url`, and `scheduleSeconds`
+(minimum 60). The worker schedules enabled monitors, while
+`POST /v2/monitor/{id}/run` queues an immediate check. The checks endpoint
+retains the complete snapshot, a line-oriented git-style text diff, and a
+path-based JSON change list for the latest 100 runs. Optional monitor webhooks
+use the same HMAC signature as crawl delivery and emit `monitor.completed` or
+`monitor.failed` events. Agent and Monitor workflows require Postgres,
+migrations, and the standard BeeCrawl worker.
+
 Batch scrape uses the same Postgres-backed queue and worker as crawl. Crawl and
 batch status responses include `id`, `expiresAt`, and a `next` URL while more
 results are available. Error endpoints return terminal page errors separately.
 
-The compatibility layer does not currently implement usage accounts or
-Firecrawl's news and image search providers. Request fields not implemented by
-an adapter are rejected rather than accepted as no-ops.
+The compatibility layer does not implement hosted Firecrawl usage accounts.
+Request fields not implemented by an adapter are rejected rather than accepted
+as no-ops.

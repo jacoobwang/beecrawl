@@ -27,7 +27,7 @@ thiserror = "2.0"
 tokio = { version = "1.42", features = ["macros", "rt-multi-thread", "sync", "time"] }
 tower-http = { version = "0.6", features = ["trace"] }
 url = "2.5"
-uuid = { version = "1.11", features = ["v4"] }
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

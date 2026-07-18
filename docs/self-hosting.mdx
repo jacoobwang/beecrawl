@@ -7,13 +7,14 @@ BeeCrawl is designed to run as separate services:
 
 1. The Rust API accepts requests and performs direct HTTP scraping.
 2. The Python Bee Engine renders browser-required pages with Playwright.
-3. The worker consumes crawl and batch-scrape jobs from Postgres.
-4. Postgres stores job history and the scrape cache.
+3. The worker consumes crawl, batch-scrape, Agent, and Monitor jobs from Postgres.
+4. Postgres stores job history, monitor snapshots, and the scrape cache.
 
 ## Required configuration
 
-For synchronous scraping, start the API. For asynchronous crawls and batch
-scrapes, configure `BEECRAWL_DATABASE_URL`, run migrations, and start a worker.
+For synchronous scraping, start the API. For asynchronous crawls, batch
+scrapes, Agent jobs, and scheduled Monitors, configure
+`BEECRAWL_DATABASE_URL`, run migrations, and start a worker.
 
 For browser rendering, set `BEE_ENGINE_URL` on the API and run Bee Engine. Its
 default address is `http://127.0.0.1:8020`.

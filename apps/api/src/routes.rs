@@ -27,6 +27,9 @@ use crate::{
     cache::CacheStore,
     crawl::{CrawlStore, CrawlStoreError},
     llm, search, web_extract, webhook,
+    workflows::{
+        self, AgentCreateRequest, MonitorCreateRequest, MonitorUpdateRequest, WorkflowStore,
+    },
 };
 
 #[derive(Clone)]
@@ -34,6 +37,7 @@ struct AppState {
     client: reqwest::Client,
     cache: CacheStore,
     crawls: CrawlStore,
+    workflows: WorkflowStore,
     parse_uploads: Arc<tokio::sync::Mutex<HashMap<String, ParseUpload>>>,
     browser_owners: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
     scrape_handoffs: Arc<tokio::sync::Mutex<HashMap<String, ScrapeHandoff>>>,
@@ -63,6 +67,7 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         client: reqwest::Client::new(),
         cache: CacheStore::from_env(),
         crawls,
+        workflows: WorkflowStore::from_env(),
         parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -138,9 +143,223 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
             "/v2/scrape/:id/interact",
             post(firecrawl_v2_scrape_interact).delete(firecrawl_v2_scrape_interact_delete),
         )
+        .route("/v2/agent", post(create_agent))
+        .route("/v2/agent/:id", get(get_agent).delete(cancel_agent))
+        .route("/v2/monitor", post(create_monitor).get(list_monitors))
+        .route(
+            "/v2/monitor/:id",
+            get(get_monitor)
+                .patch(update_monitor)
+                .delete(delete_monitor),
+        )
+        .route("/v2/monitor/:id/run", post(run_monitor))
+        .route("/v2/monitor/:id/checks", get(monitor_checks))
+        .route("/v2/monitor/:id/checks/:check_id", get(get_monitor_check))
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(70 * 1024 * 1024))
         .with_state(Arc::new(state))
+}
+
+async fn create_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<AgentCreateRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    if request.prompt.trim().is_empty() || request.prompt.len() > 20_000 {
+        return Err(ApiError::InvalidRequest(
+            "prompt must contain 1 to 20000 bytes".to_string(),
+        ));
+    }
+    if request.urls.len() > 100 {
+        return Err(ApiError::InvalidRequest(
+            "urls cannot contain more than 100 source URLs".to_string(),
+        ));
+    }
+    if !(1..=100).contains(&request.max_credits) || request.urls.len() > request.max_credits {
+        return Err(ApiError::InvalidRequest(
+            "maxCredits must be 1 to 100 and cover all source URLs".to_string(),
+        ));
+    }
+    for url in &request.urls {
+        web_extract::normalize_url(url)?;
+    }
+    let id = state
+        .workflows
+        .create_agent(&browser_owner(&headers), request)
+        .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"success": true, "id": id})),
+    )
+        .into_response())
+}
+
+async fn get_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    Ok(Json(state.workflows.agent(&browser_owner(&headers), id).await?).into_response())
+}
+
+async fn cancel_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    Ok(Json(
+        state
+            .workflows
+            .cancel_agent(&browser_owner(&headers), id)
+            .await?,
+    )
+    .into_response())
+}
+
+async fn create_monitor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<MonitorCreateRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    if request.name.trim().is_empty() || request.name.len() > 200 {
+        return Err(ApiError::InvalidRequest(
+            "name must contain 1 to 200 bytes".to_string(),
+        ));
+    }
+    web_extract::normalize_url(&request.url)?;
+    if !(60..=31_536_000).contains(&request.schedule_seconds) {
+        return Err(ApiError::InvalidRequest(
+            "scheduleSeconds must be between 60 and 31536000".to_string(),
+        ));
+    }
+    if let Some(webhook) = &request.webhook {
+        webhook::validate(webhook).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
+    }
+    let monitor = state
+        .workflows
+        .create_monitor(&browser_owner(&headers), request)
+        .await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"success": true, "data": monitor})),
+    )
+        .into_response())
+}
+
+async fn list_monitors(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let monitors = state.workflows.monitors(&browser_owner(&headers)).await?;
+    Ok(Json(json!({"success": true, "data": monitors})).into_response())
+}
+
+async fn get_monitor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let monitor = state
+        .workflows
+        .monitor(&browser_owner(&headers), id)
+        .await?;
+    Ok(Json(json!({"success": true, "data": monitor})).into_response())
+}
+
+async fn update_monitor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+    Json(request): Json<MonitorUpdateRequest>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    if request
+        .name
+        .as_ref()
+        .is_some_and(|name| name.trim().is_empty() || name.len() > 200)
+    {
+        return Err(ApiError::InvalidRequest(
+            "name must contain 1 to 200 bytes".to_string(),
+        ));
+    }
+    if let Some(url) = &request.url {
+        web_extract::normalize_url(url)?;
+    }
+    if request
+        .schedule_seconds
+        .is_some_and(|seconds| !(60..=31_536_000).contains(&seconds))
+    {
+        return Err(ApiError::InvalidRequest(
+            "scheduleSeconds must be between 60 and 31536000".to_string(),
+        ));
+    }
+    if let Some(webhook) = &request.webhook {
+        webhook::validate(webhook).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
+    }
+    let monitor = state
+        .workflows
+        .update_monitor(&browser_owner(&headers), id, request)
+        .await?;
+    Ok(Json(json!({"success": true, "data": monitor})).into_response())
+}
+
+async fn delete_monitor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    state
+        .workflows
+        .delete_monitor(&browser_owner(&headers), id)
+        .await?;
+    Ok(Json(json!({"success": true, "id": id})).into_response())
+}
+
+async fn run_monitor(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let check_id = state
+        .workflows
+        .run_monitor(&browser_owner(&headers), id)
+        .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"success": true, "id": check_id, "monitorId": id})),
+    )
+        .into_response())
+}
+
+async fn monitor_checks(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let checks = state.workflows.checks(&browser_owner(&headers), id).await?;
+    Ok(Json(json!({"success": true, "data": checks})).into_response())
+}
+
+async fn get_monitor_check(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, check_id)): Path<(uuid::Uuid, uuid::Uuid)>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let check = state
+        .workflows
+        .check(&browser_owner(&headers), id, check_id)
+        .await?;
+    Ok(Json(json!({"success": true, "data": check})).into_response())
 }
 
 async fn crawl(
@@ -2526,6 +2745,7 @@ pub enum ApiError {
     WebExtract(web_extract::WebExtractError),
     Crawl(CrawlStoreError),
     Llm(llm::LlmError),
+    Workflow(workflows::WorkflowError),
     Unauthorized,
     InvalidRequest(String),
     NotFound,
@@ -2547,6 +2767,15 @@ impl From<CrawlStoreError> for ApiError {
 impl From<llm::LlmError> for ApiError {
     fn from(value: llm::LlmError) -> Self {
         Self::Llm(value)
+    }
+}
+
+impl From<workflows::WorkflowError> for ApiError {
+    fn from(value: workflows::WorkflowError) -> Self {
+        match value {
+            workflows::WorkflowError::NotFound => Self::NotFound,
+            other => Self::Workflow(other),
+        }
     }
 }
 
@@ -2582,6 +2811,17 @@ impl IntoResponse for ApiError {
                         "code": error.code(),
                         "message": error.to_string(),
                         "retryable": matches!(error, llm::LlmError::RequestFailed(_))
+                    }
+                })),
+            )
+                .into_response(),
+            Self::Workflow(error) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "detail": {
+                        "code": "workflow_storage_error",
+                        "message": error.to_string(),
+                        "retryable": true
                     }
                 })),
             )
@@ -2956,6 +3196,7 @@ mod tests {
             client: reqwest::Client::new(),
             cache: CacheStore::from_env(),
             crawls: CrawlStore::unavailable("not needed"),
+            workflows: WorkflowStore::default(),
             parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -3197,6 +3438,7 @@ mod tests {
             client: reqwest::Client::new(),
             cache: CacheStore::from_env(),
             crawls: CrawlStore::unavailable("not needed"),
+            workflows: WorkflowStore::default(),
             parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
                 "upload-token".to_string(),
                 ParseUpload {
@@ -3220,6 +3462,7 @@ mod tests {
             client: reqwest::Client::new(),
             cache: CacheStore::from_env(),
             crawls: CrawlStore::unavailable("not needed"),
+            workflows: WorkflowStore::default(),
             parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

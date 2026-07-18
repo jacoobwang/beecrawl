@@ -89,11 +89,11 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 10. Higher-level workflows
 
-- [ ] Add asynchronous Agent jobs with status, cancellation, sources, and budgets.
-- [ ] Add scheduled Monitor jobs and manual runs.
-- [ ] Store monitor snapshots and expose check history.
-- [ ] Add JSON and text/git-style change tracking.
-- [ ] Add monitor notification webhooks.
+- [x] Add asynchronous Agent jobs with status, cancellation, sources, and budgets.
+- [x] Add scheduled Monitor jobs and manual runs.
+- [x] Store monitor snapshots and expose check history.
+- [x] Add JSON and text/git-style change tracking.
+- [x] Add monitor notification webhooks.
 
 ## Cross-cutting requirements
 
