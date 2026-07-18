@@ -727,8 +727,21 @@ async fn render_page(
     client: &reqwest::Client,
     request: &WebExtractScrapeRequest,
 ) -> Result<ProviderPage, WebExtractError> {
-    let engine_url =
-        std::env::var("BEE_ENGINE_URL").unwrap_or_else(|_| "http://127.0.0.1:8020".to_string());
+    let mut failures = Vec::new();
+    for engine_url in ranked_engine_urls(client).await {
+        match render_page_at(client, request, &engine_url).await {
+            Ok(page) => return Ok(page),
+            Err(error) => failures.push(format!("{engine_url}: {error}")),
+        }
+    }
+    Err(WebExtractError::RenderFailed(failures.join("; ")))
+}
+
+async fn render_page_at(
+    client: &reqwest::Client,
+    request: &WebExtractScrapeRequest,
+    engine_url: &str,
+) -> Result<ProviderPage, WebExtractError> {
     let screenshot = request.screenshot.clone().or_else(|| {
         request
             .formats
@@ -803,6 +816,57 @@ async fn render_page(
         fallback_reason: None,
         proxy_used: request.proxy.is_some(),
     })
+}
+
+fn configured_engine_urls() -> Vec<String> {
+    std::env::var("BEE_ENGINE_URLS")
+        .ok()
+        .map(|urls| parse_engine_urls(&urls))
+        .filter(|urls| !urls.is_empty())
+        .unwrap_or_else(|| {
+            vec![std::env::var("BEE_ENGINE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8020".to_string())
+                .trim_end_matches('/')
+                .to_string()]
+        })
+}
+
+fn parse_engine_urls(urls: &str) -> Vec<String> {
+    urls.split(',')
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(|url| url.trim_end_matches('/').to_string())
+        .collect()
+}
+
+async fn ranked_engine_urls(client: &reqwest::Client) -> Vec<String> {
+    let urls = configured_engine_urls();
+    if urls.len() < 2 {
+        return urls;
+    }
+    let mut ranked = Vec::with_capacity(urls.len());
+    for (index, url) in urls.into_iter().enumerate() {
+        let health = client
+            .get(format!("{url}/health"))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await
+            .ok()
+            .filter(|response| response.status().is_success());
+        let capacity = if let Some(response) = health {
+            response
+                .json::<serde_json::Value>()
+                .await
+                .ok()
+                .and_then(|body| body["capacity"]["availablePages"].as_u64())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        ranked.push((capacity, std::cmp::Reverse(index), url));
+    }
+    ranked.sort_by(|left, right| right.cmp(left));
+    ranked.into_iter().map(|(_, _, url)| url).collect()
 }
 
 fn reqwest_proxy(config: &crate::models::ProxyConfig) -> Result<reqwest::Proxy, WebExtractError> {
@@ -1713,6 +1777,14 @@ mod tests {
         assert!(
             content_quality_score(&page("<main>article</main>"), &article)
                 > content_quality_score(&page("<main>captcha</main>"), challenge)
+        );
+    }
+
+    #[test]
+    fn distributed_engine_urls_are_normalized_in_declaration_order() {
+        assert_eq!(
+            parse_engine_urls(" http://bee-a:8020/,http://bee-b:8020 ,, "),
+            ["http://bee-a:8020", "http://bee-b:8020"]
         );
     }
 

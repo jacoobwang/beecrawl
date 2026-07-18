@@ -52,7 +52,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Add TLS/browser fingerprint-aware HTTP fetching.
 - [x] Add engine outcome metadata and fallback reasons.
 - [x] Add content quality scoring and multi-engine selection.
-- [ ] Add distributed Bee Engine capacity and health reporting.
+- [x] Add distributed Bee Engine capacity and health reporting.
 
 ## 6. Public browser actions
 

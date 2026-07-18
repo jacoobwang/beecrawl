@@ -47,6 +47,14 @@ class FakeBrowserPool:
     async def close(self) -> None:
         return None
 
+    def health(self) -> dict:
+        return {
+            "maxPages": 4,
+            "availablePages": 3,
+            "activePages": 1,
+            "browserConnected": True,
+        }
+
 
 def test_scrape_sync_returns_fire_engine_style_response() -> None:
     app_module._browser_pool = FakeBrowserPool()
@@ -72,6 +80,17 @@ def test_scrape_sync_returns_fire_engine_style_response() -> None:
     assert body["screenshots"] == ["fake-screenshot"]
     assert body["actionResults"][1]["type"] == "executeJavascript"
     assert body["actionContent"][0]["html"] == "<html>action</html>"
+
+
+def test_health_reports_instance_capacity_engines_and_jobs() -> None:
+    app_module._browser_pool = FakeBrowserPool()
+    app_module._job_store = JobStore(app_module._browser_pool)
+    body = TestClient(app_module.app).get("/health").json()
+    assert body["ok"] is True
+    assert body["capacity"]["availablePages"] == 3
+    assert body["capacity"]["activePages"] == 1
+    assert body["jobs"] == {"total": 0, "processing": 0, "completed": 0, "failed": 0}
+    assert body["engines"]["playwright"] is True
 
 
 def test_screenshot_action_accepts_quality_and_viewport() -> None:

@@ -39,6 +39,16 @@ class BrowserPool:
         self._browser = None
         self._launch_lock = asyncio.Lock()
 
+    def health(self) -> dict[str, Any]:
+        browser_connected = bool(self._browser and self._browser.is_connected())
+        available = self._page_semaphore._value
+        return {
+            "maxPages": self._max_pages,
+            "availablePages": available,
+            "activePages": self._max_pages - available,
+            "browserConnected": browser_connected,
+        }
+
     async def render(self, request: BeeEngineScrapeRequest) -> BeeEngineScrapeResponse:
         async with self._page_semaphore:
             browser = await self._ensure_browser()

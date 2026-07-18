@@ -111,6 +111,12 @@ parallel, scores substantive text, document structure, HTTP status, and common
 bot-challenge markers, then returns the higher-quality candidate. Screenshot
 requests remain browser-only because the HTTP engine cannot produce images.
 
+For distributed rendering, set `BEE_ENGINE_URLS` to a comma-separated pool.
+The API ranks instances by the free page capacity reported by `/health` and
+rolls failed renders over to the next instance. Health responses also expose
+the instance ID, active and available pages, job counts, engine availability,
+and service version.
+
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
 

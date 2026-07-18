@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
+import socket
 
 from fastapi import FastAPI, HTTPException
 
@@ -37,8 +39,28 @@ app = FastAPI(
 
 
 @app.get("/health")
-async def health() -> dict[str, bool]:
-    return {"ok": True}
+async def health() -> dict:
+    capacity = _browser_pool.health()
+    return {
+        "ok": True,
+        "instanceId": os.getenv("BEE_ENGINE_INSTANCE_ID", socket.gethostname()),
+        "version": app.version,
+        "capacity": capacity,
+        "jobs": await _job_store.health(),
+        "engines": {
+            "playwright": True,
+            "chromeCdp": True,
+            "tlsFingerprint": _fingerprint_available(),
+        },
+    }
+
+
+def _fingerprint_available() -> bool:
+    try:
+        import curl_cffi  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 @app.post("/fetch", response_model=FingerprintFetchResponse)

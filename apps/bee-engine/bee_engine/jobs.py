@@ -41,6 +41,19 @@ class JobStore:
         async with self._lock:
             return self._jobs.pop(job_id, None) is not None
 
+    async def health(self) -> dict[str, int]:
+        async with self._lock:
+            processing = sum(
+                1 for job in self._jobs.values() if getattr(job, "processing", False)
+            )
+            failed = sum(1 for job in self._jobs.values() if isinstance(job, FailedResponse))
+            return {
+                "total": len(self._jobs),
+                "processing": processing,
+                "completed": len(self._jobs) - processing - failed,
+                "failed": failed,
+            }
+
     async def _run_job(self, job_id: str, request: BeeEngineScrapeRequest) -> None:
         try:
             result = await self.run_sync(request)
