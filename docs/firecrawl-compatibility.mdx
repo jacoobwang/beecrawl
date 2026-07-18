@@ -106,6 +106,11 @@ optional `fallbackReason`, and `proxyUsed`. These fields expose automatic
 browser/TLS/static fallback decisions on scrape, batch, crawl, and webhook
 documents.
 
+In `auto` browser mode, Beecrawl runs the browser and HTTP extraction paths in
+parallel, scores substantive text, document structure, HTTP status, and common
+bot-challenge markers, then returns the higher-quality candidate. Screenshot
+requests remain browser-only because the HTTP engine cannot produce images.
+
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
 

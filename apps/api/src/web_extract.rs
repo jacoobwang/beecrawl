@@ -211,7 +211,7 @@ async fn scrape_page(
     match request.use_browser.as_str() {
         "always" => {
             let page = render_page(client, request).await?;
-            Ok(page_to_markdown(page))
+            Ok(score_single_page(page))
         }
         "never" => {
             let page = fetch_page_with_tls(
@@ -223,51 +223,142 @@ async fn scrape_page(
                 request.proxy.as_ref(),
             )
             .await?;
-            Ok(page_to_markdown(page))
+            Ok(score_single_page(page))
         }
-        _ => match render_page(client, request).await {
+        _ if request
+            .formats
+            .iter()
+            .any(|format| format.eq_ignore_ascii_case("screenshot")) =>
+        {
+            let page = render_page(client, request).await?;
+            Ok(score_single_page(page))
+        }
+        _ => select_best_engine(client, request).await,
+    }
+}
+
+fn score_single_page(
+    mut page: ProviderPage,
+) -> (ProviderPage, String, HashMap<String, Option<String>>) {
+    let (_, markdown, metadata) = page_to_markdown(page.clone());
+    let score = content_quality_score(&page, &markdown);
+    if let Some(outcome) = page.engine_outcomes.last_mut() {
+        outcome.status = "selected".to_string();
+        outcome.quality_score = Some(score);
+    }
+    (page, markdown, metadata)
+}
+
+async fn select_best_engine(
+    client: &reqwest::Client,
+    request: &WebExtractScrapeRequest,
+) -> Result<(ProviderPage, String, HashMap<String, Option<String>>), WebExtractError> {
+    let (browser, http) = tokio::join!(
+        render_page(client, request),
+        fetch_page_with_tls(
+            client,
+            &request.url,
+            request.timeout_seconds,
+            request.skip_tls_verification,
+            &request.headers,
+            request.proxy.as_ref(),
+        )
+    );
+    let mut failures = Vec::new();
+    let mut candidates = Vec::new();
+    for (engine, result) in [("bee_engine", browser), ("http", http)] {
+        match result {
             Ok(page) => {
                 let (_, markdown, metadata) = page_to_markdown(page.clone());
-                if !markdown.trim().is_empty() {
-                    Ok((page, markdown, metadata))
-                } else {
-                    let mut page = fetch_page_with_tls(
-                        client,
-                        &request.url,
-                        request.timeout_seconds,
-                        request.skip_tls_verification,
-                        &request.headers,
-                        request.proxy.as_ref(),
-                    )
-                    .await?;
-                    page.engine_outcomes.insert(
-                        0,
-                        engine_outcome("bee_engine", "rejected", Some("empty content"), None, None),
-                    );
-                    page.fallback_reason = Some("bee_engine returned empty content".to_string());
-                    Ok(page_to_markdown(page))
-                }
+                let score = content_quality_score(&page, &markdown);
+                candidates.push((score, page, markdown, metadata));
             }
-            Err(error) => {
-                let reason = error.to_string();
-                let mut page = fetch_page_with_tls(
-                    client,
-                    &request.url,
-                    request.timeout_seconds,
-                    request.skip_tls_verification,
-                    &request.headers,
-                    request.proxy.as_ref(),
-                )
-                .await?;
-                page.engine_outcomes.insert(
-                    0,
-                    engine_outcome("bee_engine", "failed", Some(&reason), None, None),
-                );
-                page.fallback_reason = Some(reason);
-                Ok(page_to_markdown(page))
-            }
-        },
+            Err(error) => failures.push(engine_outcome(
+                engine,
+                "failed",
+                Some(&error.to_string()),
+                None,
+                None,
+            )),
+        }
     }
+    if candidates.is_empty() {
+        return Err(WebExtractError::FetchFailed(
+            failures
+                .iter()
+                .filter_map(|outcome| outcome.reason.as_deref())
+                .collect::<Vec<_>>()
+                .join("; "),
+        ));
+    }
+    candidates.sort_by(|left, right| right.0.total_cmp(&left.0));
+    let (selected_score, mut page, markdown, metadata) = candidates.remove(0);
+    let selected_engine = page.provider.clone();
+    let mut outcomes = failures;
+    for (score, candidate, _, _) in candidates {
+        outcomes.extend(candidate.engine_outcomes.into_iter().map(|mut outcome| {
+            if outcome.status == "success" {
+                outcome.status = "rejected".to_string();
+                outcome.reason = Some(format!("lower content quality than {selected_engine}"));
+                outcome.quality_score = Some(score);
+            }
+            outcome
+        }));
+    }
+    for outcome in &mut page.engine_outcomes {
+        if outcome.status == "success" {
+            outcome.status = "selected".to_string();
+            outcome.quality_score = Some(selected_score);
+        }
+    }
+    outcomes.append(&mut page.engine_outcomes);
+    page.engine_outcomes = outcomes;
+    page.fallback_reason = page
+        .engine_outcomes
+        .iter()
+        .find(|outcome| outcome.status == "failed")
+        .and_then(|outcome| outcome.reason.clone());
+    Ok((page, markdown, metadata))
+}
+
+fn content_quality_score(page: &ProviderPage, markdown: &str) -> f32 {
+    let text_length = markdown
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .count();
+    let mut score = (text_length as f32 / 2_000.0).min(0.65);
+    if page
+        .status_code
+        .is_some_and(|status| (200..400).contains(&status))
+    {
+        score += 0.1;
+    }
+    if page
+        .title
+        .as_ref()
+        .is_some_and(|title| !title.trim().is_empty())
+    {
+        score += 0.1;
+    }
+    if markdown.contains("\n#") || markdown.starts_with('#') {
+        score += 0.05;
+    }
+    if markdown.contains("\n\n") {
+        score += 0.05;
+    }
+    let lower = format!("{}\n{}", page.html, markdown).to_ascii_lowercase();
+    if [
+        "captcha",
+        "access denied",
+        "just a moment",
+        "verify you are human",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        score -= 0.6;
+    }
+    score.clamp(0.0, 1.0)
 }
 
 pub async fn fetch_page(
@@ -1599,6 +1690,30 @@ mod tests {
         assert_eq!(value["statusCode"], 503);
         assert_eq!(value["elapsedMs"], 42);
         assert_eq!(value["reason"], "browser unavailable");
+    }
+
+    #[test]
+    fn content_quality_penalizes_challenge_pages() {
+        let page = |html: &str| ProviderPage {
+            url: "https://example.com/".to_string(),
+            final_url: "https://example.com/".to_string(),
+            html: html.to_string(),
+            status_code: Some(200),
+            title: Some("Example".to_string()),
+            language: Some("en".to_string()),
+            provider: "test".to_string(),
+            rendered: false,
+            screenshot: None,
+            engine_outcomes: vec![],
+            fallback_reason: None,
+            proxy_used: false,
+        };
+        let article = "# Useful guide\n\n".to_string() + &"substantive content ".repeat(100);
+        let challenge = "# Just a moment\n\nVerify you are human. CAPTCHA";
+        assert!(
+            content_quality_score(&page("<main>article</main>"), &article)
+                > content_quality_score(&page("<main>captcha</main>"), challenge)
+        );
     }
 
     #[test]
