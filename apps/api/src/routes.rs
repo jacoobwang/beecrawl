@@ -17,7 +17,7 @@ use crate::models::{
     CrawlRequest, CrawlStatusQuery, CrawlStatusResponse, ExtractMetadata, ExtractRequest,
     ExtractResponse, FirecrawlFormat, FirecrawlV2Base64ParseRequest, FirecrawlV2BatchScrapeRequest,
     FirecrawlV2CrawlRequest, FirecrawlV2ExtractRequest, FirecrawlV2MapRequest,
-    FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link,
+    FirecrawlV2ParseOptions, FirecrawlV2ScrapeRequest, FirecrawlV2SearchRequest, Link, ProxyConfig,
     ScrapeResponse, ScreenshotOptions, ScreenshotViewport, SearchRequest, SearchScrapeOptions,
     WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
@@ -199,6 +199,7 @@ async fn run_extract(
             use_browser: request.use_browser.clone(),
             skip_tls_verification: false,
             headers: HashMap::new(),
+            proxy: None,
             screenshot: None,
             content: None,
         },
@@ -271,6 +272,7 @@ async fn firecrawl_v2_scrape(
         request.mobile,
     )?;
     let requested_formats = request.formats;
+    let proxy = firecrawl_proxy(request.proxy.as_deref())?;
     validate_firecrawl_enrichment_formats(&requested_formats)?;
     let screenshot = firecrawl_screenshot_options(&requested_formats)?;
     let content = ContentOptions {
@@ -301,6 +303,7 @@ async fn firecrawl_v2_scrape(
             use_browser: "auto".to_string(),
             skip_tls_verification: request.skip_tls_verification.unwrap_or(false),
             headers: request.headers,
+            proxy,
             screenshot,
             content: Some(content),
         },
@@ -482,6 +485,7 @@ async fn firecrawl_v2_crawl(
         webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
     }
     let scrape = request.scrape_options.unwrap_or_default();
+    let proxy = firecrawl_proxy(scrape.proxy.as_deref())?;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
         scrape.remove_base64_images,
@@ -506,6 +510,7 @@ async fn firecrawl_v2_crawl(
             url: request.url,
             idempotency_key,
             webhook: request.webhook,
+            proxy,
             limit: request.limit,
             max_depth: request.max_discovery_depth,
             include_paths: request.include_paths,
@@ -544,6 +549,7 @@ async fn firecrawl_v2_batch_scrape(
         webhook::validate(config).map_err(|error| ApiError::InvalidRequest(error.to_string()))?;
     }
     let scrape = request.scrape_options;
+    let proxy = firecrawl_proxy(scrape.proxy.as_deref())?;
     validate_firecrawl_scrape_options(
         scrape.only_main_content,
         scrape.remove_base64_images,
@@ -568,6 +574,7 @@ async fn firecrawl_v2_batch_scrape(
             urls: request.urls,
             max_concurrency,
             webhook: request.webhook,
+            proxy,
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
@@ -815,6 +822,7 @@ async fn firecrawl_v2_extract(
                     use_browser: "auto".to_string(),
                     skip_tls_verification: false,
                     headers: HashMap::new(),
+                    proxy: None,
                     screenshot: None,
                     content: None,
                 },
@@ -924,6 +932,12 @@ async fn firecrawl_v2_search(
             options.mobile,
         )?;
     }
+    let search_proxy = request
+        .scrape_options
+        .as_ref()
+        .map(|options| firecrawl_proxy(options.proxy.as_deref()))
+        .transpose()?
+        .flatten();
 
     let response = search::search(
         &state.client,
@@ -939,6 +953,7 @@ async fn firecrawl_v2_search(
                 use_browser: "auto".to_string(),
                 skip_tls_verification: options.skip_tls_verification.unwrap_or(false),
                 headers: options.headers,
+                proxy: search_proxy,
                 content: Some(ContentOptions {
                     only_main_content: options.only_main_content.unwrap_or(true),
                     only_clean_content: options.only_clean_content,
@@ -1066,6 +1081,55 @@ fn firecrawl_idempotency_key(headers: &HeaderMap) -> Result<Option<String>, ApiE
     uuid::Uuid::parse_str(value)
         .map_err(|_| ApiError::InvalidRequest("x-idempotency-key must be a UUID".to_string()))?;
     Ok(Some(value.to_string()))
+}
+
+fn firecrawl_proxy(mode: Option<&str>) -> Result<Option<ProxyConfig>, ApiError> {
+    let mode = mode.unwrap_or("auto");
+    if !matches!(mode, "auto" | "basic" | "stealth" | "enhanced") {
+        return Err(ApiError::InvalidRequest(
+            "proxy must be one of auto, basic, stealth, or enhanced".to_string(),
+        ));
+    }
+    if matches!(mode, "stealth" | "enhanced") {
+        return Err(ApiError::InvalidRequest(format!(
+            "proxy={mode} is not configured; use basic or auto"
+        )));
+    }
+    let raw = std::env::var("BEECRAWL_PROXY_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let Some(raw) = raw else {
+        return if mode == "basic" {
+            Err(ApiError::InvalidRequest(
+                "Set BEECRAWL_PROXY_URL before requesting proxy=basic".to_string(),
+            ))
+        } else {
+            Ok(None)
+        };
+    };
+    parse_proxy_config("basic", &raw).map(Some)
+}
+
+fn parse_proxy_config(mode: &str, raw: &str) -> Result<ProxyConfig, ApiError> {
+    let mut url = url::Url::parse(raw)
+        .map_err(|error| ApiError::InvalidRequest(format!("Invalid proxy URL: {error}")))?;
+    if !matches!(url.scheme(), "http" | "https" | "socks5") || url.host_str().is_none() {
+        return Err(ApiError::InvalidRequest(
+            "Proxy URL must use http, https, or socks5".to_string(),
+        ));
+    }
+    let username = (!url.username().is_empty()).then(|| url.username().to_string());
+    let password = url.password().map(str::to_string);
+    url.set_username("")
+        .map_err(|_| ApiError::InvalidRequest("Proxy username could not be parsed".to_string()))?;
+    url.set_password(None)
+        .map_err(|_| ApiError::InvalidRequest("Proxy password could not be parsed".to_string()))?;
+    Ok(ProxyConfig {
+        mode: mode.to_string(),
+        server: url.to_string(),
+        username,
+        password,
+    })
 }
 
 fn firecrawl_format_names(formats: &[FirecrawlFormat]) -> Vec<String> {
@@ -1843,6 +1907,15 @@ mod tests {
         let webhook = webhook_crawl.webhook.unwrap().config();
         assert_eq!(webhook.headers["X-Tenant"], "bee");
         assert_eq!(webhook.metadata["environment"], "test");
+
+        let proxy = parse_proxy_config(
+            "basic",
+            "http://proxy-user:proxy-pass@proxy.example.com:8080",
+        )
+        .unwrap();
+        assert_eq!(proxy.server, "http://proxy.example.com:8080/");
+        assert_eq!(proxy.username.as_deref(), Some("proxy-user"));
+        assert_eq!(proxy.password.as_deref(), Some("proxy-pass"));
 
         assert_eq!(firecrawl_delay_ms(Some(0.25)).unwrap(), 250);
         assert_eq!(firecrawl_max_concurrency(Some(3)).unwrap(), 3);

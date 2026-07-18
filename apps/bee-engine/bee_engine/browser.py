@@ -173,6 +173,8 @@ def _context_options(request: BeeEngineScrapeRequest) -> dict[str, Any]:
     }
     if locale:
         options["locale"] = locale
+    if request.proxy:
+        options["proxy"] = request.proxy.model_dump(exclude={"mode"}, exclude_none=True)
     return options
 
 

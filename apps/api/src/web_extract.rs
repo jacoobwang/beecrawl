@@ -160,6 +160,7 @@ fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String 
         "location": &request.location,
         "skip_tls_verification": request.skip_tls_verification,
         "headers": &request.headers,
+        "proxy": &request.proxy,
         "screenshot": &request.screenshot,
     }))
     .expect("cache key payload serializes");
@@ -214,6 +215,7 @@ async fn scrape_page(
                 request.timeout_seconds,
                 request.skip_tls_verification,
                 &request.headers,
+                request.proxy.as_ref(),
             )
             .await?;
             Ok(page_to_markdown(page))
@@ -230,6 +232,7 @@ async fn scrape_page(
                         request.timeout_seconds,
                         request.skip_tls_verification,
                         &request.headers,
+                        request.proxy.as_ref(),
                     )
                     .await?;
                     Ok(page_to_markdown(page))
@@ -242,6 +245,7 @@ async fn scrape_page(
                     request.timeout_seconds,
                     request.skip_tls_verification,
                     &request.headers,
+                    request.proxy.as_ref(),
                 )
                 .await?;
                 Ok(page_to_markdown(page))
@@ -255,7 +259,15 @@ pub async fn fetch_page(
     raw_url: &str,
     timeout_seconds: u64,
 ) -> Result<ProviderPage, WebExtractError> {
-    fetch_page_with_tls(client, raw_url, timeout_seconds, false, &HashMap::new()).await
+    fetch_page_with_tls(
+        client,
+        raw_url,
+        timeout_seconds,
+        false,
+        &HashMap::new(),
+        None,
+    )
+    .await
 }
 
 pub async fn robots_allows(
@@ -414,15 +426,20 @@ async fn fetch_page_with_tls(
     timeout_seconds: u64,
     skip_tls_verification: bool,
     headers: &HashMap<String, String>,
+    proxy: Option<&crate::models::ProxyConfig>,
 ) -> Result<ProviderPage, WebExtractError> {
     let normalized = normalize_url(raw_url)?;
-    let insecure_client;
-    let client = if skip_tls_verification {
-        insecure_client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+    let configured_client;
+    let client = if skip_tls_verification || proxy.is_some() {
+        let mut builder =
+            reqwest::Client::builder().danger_accept_invalid_certs(skip_tls_verification);
+        if let Some(proxy) = proxy {
+            builder = builder.proxy(reqwest_proxy(proxy)?);
+        }
+        configured_client = builder
             .build()
             .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
-        &insecure_client
+        &configured_client
     } else {
         client
     };
@@ -489,6 +506,7 @@ async fn render_page(
             "blockMedia": true,
             "skipTlsVerification": request.skip_tls_verification,
             "headers": request.headers,
+            "proxy": request.proxy,
             "geolocation": request.location,
             "actions": if let Some(options) = &screenshot {
                 json!([{
@@ -531,6 +549,15 @@ async fn render_page(
         rendered: true,
         screenshot: rendered.screenshots.into_iter().next(),
     })
+}
+
+fn reqwest_proxy(config: &crate::models::ProxyConfig) -> Result<reqwest::Proxy, WebExtractError> {
+    let mut proxy = reqwest::Proxy::all(&config.server)
+        .map_err(|error| WebExtractError::FetchFailed(error.to_string()))?;
+    if let Some(username) = &config.username {
+        proxy = proxy.basic_auth(username, config.password.as_deref().unwrap_or_default());
+    }
+    Ok(proxy)
 }
 
 fn request_headers(headers: &HashMap<String, String>) -> Result<HeaderMap, WebExtractError> {

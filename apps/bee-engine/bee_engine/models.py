@@ -10,6 +10,13 @@ class Geolocation(BaseModel):
     languages: list[str] = Field(default_factory=list)
 
 
+class ProxySettings(BaseModel):
+    mode: Literal["basic", "stealth", "enhanced"] = "basic"
+    server: str = Field(..., min_length=1)
+    username: str | None = None
+    password: str | None = None
+
+
 class WaitAction(BaseModel):
     type: Literal["wait"]
     milliseconds: int = Field(default=1000, ge=0, le=60000)
@@ -57,6 +64,7 @@ class BeeEngineScrapeRequest(BaseModel):
     block_media: bool = Field(default=True, alias="blockMedia")
     geolocation: Geolocation | None = None
     skip_tls_verification: bool = Field(default=False, alias="skipTlsVerification")
+    proxy: ProxySettings | None = None
 
 
 class ProcessingResponse(BaseModel):

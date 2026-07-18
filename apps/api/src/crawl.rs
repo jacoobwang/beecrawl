@@ -14,7 +14,7 @@ use crate::models::{
     ActiveCrawl, ActiveCrawlsResponse, BatchScrapeEnqueueResponse, BatchScrapeRequest,
     CrawlEnqueueResponse, CrawlError, CrawlPagination, CrawlRequest, CrawlStatusQuery,
     CrawlStatusResponse, FirecrawlJobError, FirecrawlJobErrorsResponse, FirecrawlWebhook,
-    WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    ProxyConfig, WebExtractMapRequest, WebExtractScrapeRequest, WebExtractScrapeResponse,
 };
 use crate::web_extract::{self, WebExtractError};
 
@@ -124,7 +124,7 @@ impl CrawlStore {
             }
         }
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, webhook, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now() + make_interval(days => $24))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, delay_ms, max_concurrency, deduplicate_similar_urls, ignore_query_parameters, ignore_robots_txt, robots_user_agent, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, now() + make_interval(days => $25))",
         )
         .bind(id)
         .bind(&url)
@@ -148,6 +148,12 @@ impl CrawlStore {
                 .webhook
                 .as_ref()
                 .map(|value| serde_json::to_value(value).expect("webhook serializes")),
+        )
+        .bind(
+            request
+                .proxy
+                .as_ref()
+                .map(|value| serde_json::to_value(value).expect("proxy serializes")),
         )
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
@@ -204,7 +210,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, webhook, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, $10, now() + make_interval(days => $11))",
+            "INSERT INTO crawl_jobs (id, url, job_type, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, max_concurrency, webhook, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'batch_scrape', 'queued', $3, 0, false, true, $4, $5, $6, $7, $8, $9, $10, $11, now() + make_interval(days => $12))",
         )
         .bind(id)
         .bind(&urls[0])
@@ -215,6 +221,12 @@ impl CrawlStore {
                 .webhook
                 .as_ref()
                 .map(|value| serde_json::to_value(value).expect("webhook serializes")),
+        )
+        .bind(
+            request
+                .proxy
+                .as_ref()
+                .map(|value| serde_json::to_value(value).expect("proxy serializes")),
         )
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
@@ -413,7 +425,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, proxy, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -433,6 +445,11 @@ impl CrawlStore {
             ignore_query_parameters: row.try_get("ignore_query_parameters")?,
             ignore_robots_txt: row.try_get("ignore_robots_txt")?,
             robots_user_agent: row.try_get("robots_user_agent")?,
+            proxy: row
+                .try_get::<Option<Value>, _>("proxy")?
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?,
             timeout_seconds: row.try_get::<i64, _>("timeout_seconds")? as u64,
             wait_for_ms: row.try_get::<i64, _>("wait_for_ms")? as u64,
             use_browser: row.try_get("use_browser")?,
@@ -641,6 +658,7 @@ async fn process_task(
                 use_browser: options.use_browser.clone(),
                 skip_tls_verification: options.skip_tls_verification,
                 headers: std::collections::HashMap::new(),
+                proxy: options.proxy.clone(),
                 screenshot: None,
                 content: None,
             },
@@ -763,6 +781,7 @@ struct CrawlOptions {
     ignore_query_parameters: bool,
     ignore_robots_txt: bool,
     robots_user_agent: Option<String>,
+    proxy: Option<ProxyConfig>,
     timeout_seconds: u64,
     wait_for_ms: u64,
     use_browser: String,
@@ -943,6 +962,7 @@ mod tests {
             url: "https://example.com".to_string(),
             idempotency_key: None,
             webhook: None,
+            proxy: None,
             limit: 10,
             max_depth: 0,
             include_paths: Vec::new(),
@@ -1064,6 +1084,7 @@ mod tests {
                 ],
                 max_concurrency: 3,
                 webhook: None,
+                proxy: None,
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),
@@ -1107,6 +1128,7 @@ mod tests {
                 ],
                 max_concurrency: 1,
                 webhook: None,
+                proxy: None,
                 timeout_seconds: 5,
                 wait_for_ms: 0,
                 use_browser: "never".to_string(),

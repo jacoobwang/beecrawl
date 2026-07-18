@@ -20,9 +20,19 @@ pub struct WebExtractScrapeRequest {
     #[serde(default)]
     pub headers: HashMap<String, String>,
     #[serde(skip)]
+    pub proxy: Option<ProxyConfig>,
+    #[serde(skip)]
     pub screenshot: Option<ScreenshotOptions>,
     #[serde(skip)]
     pub content: Option<ContentOptions>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ProxyConfig {
+    pub mode: String,
+    pub server: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -93,6 +103,7 @@ pub struct FirecrawlV2ScrapeRequest {
     pub mobile: Option<bool>,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    pub proxy: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,6 +246,7 @@ pub struct FirecrawlV2ScrapeOptions {
     pub mobile: Option<bool>,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    pub proxy: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -415,6 +427,8 @@ pub struct CrawlRequest {
     pub idempotency_key: Option<String>,
     #[serde(default)]
     pub webhook: Option<FirecrawlWebhook>,
+    #[serde(default)]
+    pub proxy: Option<ProxyConfig>,
     #[serde(default = "default_crawl_limit")]
     pub limit: usize,
     #[serde(rename = "maxDepth", default = "default_crawl_max_depth")]
@@ -467,6 +481,8 @@ pub struct BatchScrapeRequest {
     pub max_concurrency: usize,
     #[serde(default)]
     pub webhook: Option<FirecrawlWebhook>,
+    #[serde(default)]
+    pub proxy: Option<ProxyConfig>,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
     #[serde(default)]
@@ -637,6 +653,8 @@ pub struct SearchScrapeOptions {
     pub skip_tls_verification: bool,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    #[serde(skip)]
+    pub proxy: Option<ProxyConfig>,
     #[serde(skip)]
     pub content: Option<ContentOptions>,
 }

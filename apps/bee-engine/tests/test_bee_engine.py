@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from bee_engine import app as app_module
 from bee_engine.jobs import JobStore
+from bee_engine.browser import _context_options
 from bee_engine.models import BeeEngineScrapeRequest, BeeEngineScrapeResponse
 
 
@@ -91,6 +92,25 @@ def test_screenshot_action_accepts_quality_and_viewport() -> None:
     assert action.type == "screenshot"
     assert action.quality == 80
     assert action.viewport.width == 1440
+
+
+def test_proxy_settings_are_forwarded_to_browser_context() -> None:
+    request = BeeEngineScrapeRequest.model_validate(
+        {
+            "url": "https://example.com",
+            "proxy": {
+                "mode": "basic",
+                "server": "http://proxy.example.com:8080",
+                "username": "bee",
+                "password": "secret",
+            },
+        }
+    )
+    assert _context_options(request)["proxy"] == {
+        "server": "http://proxy.example.com:8080",
+        "username": "bee",
+        "password": "secret",
+    }
 
 
 def test_scrape_instant_return_status_and_delete() -> None:
