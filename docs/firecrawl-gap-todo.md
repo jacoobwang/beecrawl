@@ -48,7 +48,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 ## 5. Fetch success rate and engine selection
 
 - [x] Add configurable basic proxy support.
-- [ ] Add enhanced/stealth browser modes and proxy selection.
+- [x] Add enhanced/stealth browser modes and proxy selection.
 - [ ] Add TLS/browser fingerprint-aware HTTP fetching.
 - [ ] Add engine outcome metadata and fallback reasons.
 - [ ] Add content quality scoring and multi-engine selection.

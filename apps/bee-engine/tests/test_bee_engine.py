@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from bee_engine import app as app_module
 from bee_engine.jobs import JobStore
-from bee_engine.browser import _context_options
+from bee_engine.browser import _context_options, _uses_stealth
 from bee_engine.models import BeeEngineScrapeRequest, BeeEngineScrapeResponse
 
 
@@ -111,6 +111,10 @@ def test_proxy_settings_are_forwarded_to_browser_context() -> None:
         "username": "bee",
         "password": "secret",
     }
+    assert not _uses_stealth(request)
+
+    request.proxy.mode = "enhanced"
+    assert _uses_stealth(request)
 
 
 def test_scrape_instant_return_status_and_delete() -> None:

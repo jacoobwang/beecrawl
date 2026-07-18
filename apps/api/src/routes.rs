@@ -1090,24 +1090,33 @@ fn firecrawl_proxy(mode: Option<&str>) -> Result<Option<ProxyConfig>, ApiError> 
             "proxy must be one of auto, basic, stealth, or enhanced".to_string(),
         ));
     }
-    if matches!(mode, "stealth" | "enhanced") {
-        return Err(ApiError::InvalidRequest(format!(
-            "proxy={mode} is not configured; use basic or auto"
-        )));
-    }
-    let raw = std::env::var("BEECRAWL_PROXY_URL")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
-    let Some(raw) = raw else {
-        return if mode == "basic" {
-            Err(ApiError::InvalidRequest(
-                "Set BEECRAWL_PROXY_URL before requesting proxy=basic".to_string(),
-            ))
-        } else {
+    let configured = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+    };
+    let selected = match mode {
+        "basic" => configured("BEECRAWL_PROXY_URL").map(|url| ("basic", url)),
+        "stealth" => configured("BEECRAWL_STEALTH_PROXY_URL").map(|url| ("stealth", url)),
+        "enhanced" => configured("BEECRAWL_ENHANCED_PROXY_URL")
+            .map(|url| ("enhanced", url))
+            .or_else(|| configured("BEECRAWL_STEALTH_PROXY_URL").map(|url| ("enhanced", url))),
+        "auto" => configured("BEECRAWL_PROXY_URL")
+            .map(|url| ("basic", url))
+            .or_else(|| configured("BEECRAWL_ENHANCED_PROXY_URL").map(|url| ("enhanced", url)))
+            .or_else(|| configured("BEECRAWL_STEALTH_PROXY_URL").map(|url| ("stealth", url))),
+        _ => None,
+    };
+    let Some((selected_mode, raw)) = selected else {
+        return if mode == "auto" {
             Ok(None)
+        } else {
+            Err(ApiError::InvalidRequest(format!(
+                "No {mode} proxy is configured"
+            )))
         };
     };
-    parse_proxy_config("basic", &raw).map(Some)
+    parse_proxy_config(selected_mode, &raw).map(Some)
 }
 
 fn parse_proxy_config(mode: &str, raw: &str) -> Result<ProxyConfig, ApiError> {

@@ -91,6 +91,10 @@ embedded) to enable `proxy=basic`; `proxy=auto` uses it when configured. The
 same proxy is applied to static HTTP and Playwright traffic, persisted for
 crawl and batch workers, forwarded by search result scraping, and included in
 the scrape cache key.
+`BEECRAWL_STEALTH_PROXY_URL` and `BEECRAWL_ENHANCED_PROXY_URL` enable the
+matching Firecrawl proxy modes. `auto` selects basic, enhanced, then stealth in
+that order based on configured capacity. Stealth/enhanced browser contexts also
+install automation-evasion navigator shims and report residential proxy use.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

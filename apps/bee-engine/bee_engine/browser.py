@@ -22,6 +22,12 @@ BLOCKED_HOST_PARTS = (
     "facebook.net",
     "hotjar.com",
 )
+STEALTH_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+window.chrome = window.chrome || {runtime: {}};
+"""
 
 
 class BrowserPool:
@@ -37,6 +43,8 @@ class BrowserPool:
         async with self._page_semaphore:
             browser = await self._ensure_browser()
             context = await browser.new_context(**_context_options(request))
+            if _uses_stealth(request):
+                await context.add_init_script(STEALTH_INIT_SCRIPT)
             if request.block_media:
                 await context.route("**/*", _route_handler)
 
@@ -112,7 +120,7 @@ class BrowserPool:
                     screenshots=screenshots,
                     actionContent=action_content,
                     actionResults=action_results,
-                    usedMobileProxy=False,
+                    usedMobileProxy=_uses_stealth(request),
                     timezone=None,
                 )
             except Exception as exc:
@@ -176,6 +184,10 @@ def _context_options(request: BeeEngineScrapeRequest) -> dict[str, Any]:
     if request.proxy:
         options["proxy"] = request.proxy.model_dump(exclude={"mode"}, exclude_none=True)
     return options
+
+
+def _uses_stealth(request: BeeEngineScrapeRequest) -> bool:
+    return bool(request.proxy and request.proxy.mode in {"stealth", "enhanced"})
 
 
 async def _route_handler(route) -> None:
