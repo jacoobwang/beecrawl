@@ -193,6 +193,7 @@ class BrowserPool:
                     actionResults=action_results,
                     usedMobileProxy=_uses_stealth(request),
                     timezone=None,
+                    storageState=await context.storage_state(),
                 )
             except Exception as exc:
                 return BeeEngineScrapeResponse(
@@ -208,10 +209,16 @@ class BrowserPool:
 
     async def close(self) -> None:
         if self._browser:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
             self._browser = None
         if self._playwright:
-            await self._playwright.stop()
+            try:
+                await self._playwright.stop()
+            except Exception:
+                pass
             self._playwright = None
 
     async def _ensure_browser(self):

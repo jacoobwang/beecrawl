@@ -1010,6 +1010,7 @@ mod tests {
             links: None,
             screenshot: None,
             actions: None,
+            browser_state: None,
             metadata: WebExtractMetadata {
                 title: Some("Example".to_string()),
                 language: Some("en".to_string()),

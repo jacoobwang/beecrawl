@@ -11,6 +11,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::Engine as _;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tower_http::trace::TraceLayer;
 
 use crate::models::{
@@ -34,6 +35,8 @@ struct AppState {
     cache: CacheStore,
     crawls: CrawlStore,
     parse_uploads: Arc<tokio::sync::Mutex<HashMap<String, ParseUpload>>>,
+    browser_owners: Arc<tokio::sync::Mutex<HashMap<String, String>>>,
+    scrape_handoffs: Arc<tokio::sync::Mutex<HashMap<String, ScrapeHandoff>>>,
 }
 
 #[derive(Clone)]
@@ -41,6 +44,14 @@ struct ParseUpload {
     filename: String,
     expires_at: chrono::DateTime<chrono::Utc>,
     data: Option<Bytes>,
+}
+
+#[derive(Clone)]
+struct ScrapeHandoff {
+    url: String,
+    storage_state: Option<Value>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    session_id: Option<String>,
 }
 
 pub fn app() -> Router {
@@ -53,6 +64,8 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         cache: CacheStore::from_env(),
         crawls,
         parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
     Router::new()
         .route("/health", get(health))
@@ -87,6 +100,44 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/map", post(firecrawl_v2_map))
         .route("/v2/extract", post(firecrawl_v2_extract))
         .route("/v2/search", post(firecrawl_v2_search))
+        .route(
+            "/v2/browser",
+            post(firecrawl_v2_browser_create).get(firecrawl_v2_browser_list),
+        )
+        .route(
+            "/v2/interact",
+            post(firecrawl_v2_browser_create).get(firecrawl_v2_browser_list),
+        )
+        .route(
+            "/v2/browser/:id/execute",
+            post(firecrawl_v2_browser_execute),
+        )
+        .route(
+            "/v2/interact/:id/execute",
+            post(firecrawl_v2_browser_execute),
+        )
+        .route("/v2/browser/:id/replay", get(firecrawl_v2_browser_replay))
+        .route("/v2/interact/:id/replay", get(firecrawl_v2_browser_replay))
+        .route(
+            "/v2/browser/:id/replay/:page_id",
+            get(firecrawl_v2_browser_replay_page),
+        )
+        .route(
+            "/v2/interact/:id/replay/:page_id",
+            get(firecrawl_v2_browser_replay_page),
+        )
+        .route(
+            "/v2/browser/:id",
+            axum::routing::delete(firecrawl_v2_browser_delete),
+        )
+        .route(
+            "/v2/interact/:id",
+            axum::routing::delete(firecrawl_v2_browser_delete),
+        )
+        .route(
+            "/v2/scrape/:id/interact",
+            post(firecrawl_v2_scrape_interact).delete(firecrawl_v2_scrape_interact_delete),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(70 * 1024 * 1024))
         .with_state(Arc::new(state))
@@ -325,6 +376,17 @@ async fn firecrawl_v2_scrape(
         },
     )
     .await?;
+    if response.metadata.rendered {
+        state.scrape_handoffs.lock().await.insert(
+            response.request_id.clone(),
+            ScrapeHandoff {
+                url: response.final_url.clone(),
+                storage_state: response.browser_state.clone(),
+                created_at: chrono::Utc::now(),
+                session_id: None,
+            },
+        );
+    }
     let mut document = firecrawl_document(response);
     enrich_firecrawl_document(
         &state,
@@ -1274,6 +1336,361 @@ async fn firecrawl_v2_search(
         data.insert("images".to_string(), json!(images));
     }
     Ok(Json(json!({ "success": true, "data": data })).into_response())
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct BrowserCreateRequest {
+    #[serde(default = "default_browser_ttl")]
+    ttl: u64,
+    #[serde(default = "default_browser_activity_ttl")]
+    activity_ttl: u64,
+    #[serde(default = "browser_default_true")]
+    stream_web_view: bool,
+    #[serde(default = "browser_default_true")]
+    record_session: bool,
+    #[serde(default)]
+    initial_url: Option<String>,
+    #[serde(default)]
+    storage_state: Option<Value>,
+}
+
+fn default_browser_ttl() -> u64 {
+    600
+}
+
+fn browser_default_true() -> bool {
+    true
+}
+
+fn default_browser_activity_ttl() -> u64 {
+    300
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct BrowserExecuteRequest {
+    code: String,
+    #[serde(default = "default_browser_language")]
+    language: String,
+    #[serde(default = "default_browser_execute_timeout")]
+    timeout: u64,
+    #[serde(default)]
+    origin: Option<String>,
+}
+
+fn default_browser_language() -> String {
+    "node".to_string()
+}
+
+fn default_browser_execute_timeout() -> u64 {
+    30
+}
+
+async fn firecrawl_v2_browser_create(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    payload: Result<Json<BrowserCreateRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let Json(request) = firecrawl_json(payload)?;
+    Ok(
+        create_browser_session(&state, browser_owner(&headers), request)
+            .await?
+            .0,
+    )
+}
+
+async fn create_browser_session(
+    state: &AppState,
+    owner: String,
+    request: BrowserCreateRequest,
+) -> Result<(Response, String), ApiError> {
+    if !(30..=3_600).contains(&request.ttl) || !(10..=3_600).contains(&request.activity_ttl) {
+        return Err(ApiError::InvalidRequest(
+            "ttl must be 30..3600 and activityTtl must be 10..3600 seconds".to_string(),
+        ));
+    }
+    if request
+        .initial_url
+        .as_ref()
+        .is_some_and(|url| web_extract::normalize_url(url).is_err())
+    {
+        return Err(ApiError::InvalidRequest("Invalid initialUrl".to_string()));
+    }
+    let response = state
+        .client
+        .post(browser_engine_url("/sessions"))
+        .json(&json!({
+            "ttl": request.ttl,
+            "activityTtl": request.activity_ttl,
+            "initialUrl": request.initial_url,
+            "storageState": request.storage_state,
+            "record": request.record_session,
+        }))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Browser service unavailable: {error}")))?;
+    if !response.status().is_success() {
+        return Err(ApiError::InvalidRequest(format!(
+            "Browser service returned HTTP {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        )));
+    }
+    let session: Value = response
+        .json()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Invalid browser response: {error}")))?;
+    let id = session["id"]
+        .as_str()
+        .ok_or_else(|| ApiError::Internal("Browser response has no session ID".to_string()))?
+        .to_string();
+    state.browser_owners.lock().await.insert(id.clone(), owner);
+    let response = Json(json!({
+        "success": true,
+        "id": id,
+        "cdpUrl": Value::Null,
+        "liveViewUrl": Value::Null,
+        "interactiveLiveViewUrl": Value::Null,
+        "expiresAt": session["expiresAt"],
+    }))
+    .into_response();
+    Ok((response, id))
+}
+
+async fn firecrawl_v2_browser_list(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let owner = browser_owner(&headers);
+    let response = state
+        .client
+        .get(browser_engine_url("/sessions"))
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Browser service unavailable: {error}")))?;
+    let payload: Value = response
+        .json()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Invalid browser response: {error}")))?;
+    let owners = state.browser_owners.lock().await;
+    let sessions = payload["sessions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|session| {
+            session["id"]
+                .as_str()
+                .and_then(|id| owners.get(id))
+                .is_some_and(|session_owner| session_owner == &owner)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "success": true, "sessions": sessions })).into_response())
+}
+
+async fn firecrawl_v2_browser_execute(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    payload: Result<Json<BrowserExecuteRequest>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    require_browser_owner(&state, &headers, &id).await?;
+    let Json(request) = firecrawl_json(payload)?;
+    if request.code.is_empty()
+        || request.code.len() > 100_000
+        || !(1..=300).contains(&request.timeout)
+    {
+        return Err(ApiError::InvalidRequest(
+            "code must be 1..100000 bytes and timeout 1..300 seconds".to_string(),
+        ));
+    }
+    proxy_browser_json(
+        &state,
+        reqwest::Method::POST,
+        &format!("/sessions/{id}/execute"),
+        Some(serde_json::to_value(request).expect("browser execution serializes")),
+    )
+    .await
+}
+
+async fn firecrawl_v2_browser_replay(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    require_browser_owner(&state, &headers, &id).await?;
+    proxy_browser_json(
+        &state,
+        reqwest::Method::GET,
+        &format!("/sessions/{id}/replay"),
+        None,
+    )
+    .await
+}
+
+async fn firecrawl_v2_browser_replay_page(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, page_id)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    require_browser_owner(&state, &headers, &id).await?;
+    proxy_browser_json(
+        &state,
+        reqwest::Method::GET,
+        &format!("/sessions/{id}/replay/{page_id}"),
+        None,
+    )
+    .await
+}
+
+async fn firecrawl_v2_browser_delete(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    require_browser_owner(&state, &headers, &id).await?;
+    let response = proxy_browser_json(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("/sessions/{id}"),
+        None,
+    )
+    .await?;
+    state.browser_owners.lock().await.remove(&id);
+    Ok(response)
+}
+
+async fn firecrawl_v2_scrape_interact(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let handoff = state
+        .scrape_handoffs
+        .lock()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or(ApiError::NotFound)?;
+    if chrono::Utc::now() - handoff.created_at > chrono::Duration::hours(4) {
+        return Err(ApiError::NotFound);
+    }
+    let (response, session_id) = create_browser_session(
+        &state,
+        browser_owner(&headers),
+        BrowserCreateRequest {
+            ttl: 600,
+            activity_ttl: 300,
+            stream_web_view: true,
+            record_session: true,
+            initial_url: Some(handoff.url),
+            storage_state: handoff.storage_state,
+        },
+    )
+    .await?;
+    if let Some(handoff) = state.scrape_handoffs.lock().await.get_mut(&id) {
+        handoff.session_id = Some(session_id);
+    }
+    Ok(response)
+}
+
+async fn firecrawl_v2_scrape_interact_delete(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, ApiError> {
+    require_auth(&headers)?;
+    let session_id = state
+        .scrape_handoffs
+        .lock()
+        .await
+        .get(&id)
+        .and_then(|handoff| handoff.session_id.clone())
+        .ok_or(ApiError::NotFound)?;
+    require_browser_owner(&state, &headers, &session_id).await?;
+    let response = proxy_browser_json(
+        &state,
+        reqwest::Method::DELETE,
+        &format!("/sessions/{session_id}"),
+        None,
+    )
+    .await?;
+    state.browser_owners.lock().await.remove(&session_id);
+    Ok(response)
+}
+
+async fn proxy_browser_json(
+    state: &AppState,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<Response, ApiError> {
+    let mut request = state.client.request(method, browser_engine_url(path));
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|error| ApiError::Internal(format!("Browser service unavailable: {error}")))?;
+    let status = response.status();
+    let mut payload: Value = response.json().await.unwrap_or_else(|_| json!({}));
+    if !status.is_success() {
+        return Err(if status == reqwest::StatusCode::NOT_FOUND {
+            ApiError::NotFound
+        } else {
+            ApiError::InvalidRequest(
+                payload["detail"]
+                    .as_str()
+                    .unwrap_or("Browser request failed")
+                    .to_string(),
+            )
+        });
+    }
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("success".to_string(), json!(true));
+    }
+    Ok(Json(payload).into_response())
+}
+
+fn browser_engine_url(path: &str) -> String {
+    format!(
+        "{}{}",
+        std::env::var("BEE_ENGINE_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:8020".to_string())
+            .trim_end_matches('/'),
+        path
+    )
+}
+
+fn browser_owner(headers: &HeaderMap) -> String {
+    let credential = headers
+        .get("authorization")
+        .or_else(|| headers.get("x-api-key"))
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("anonymous");
+    format!("{:x}", Sha256::digest(credential.as_bytes()))
+}
+
+async fn require_browser_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    id: &str,
+) -> Result<(), ApiError> {
+    let owner = browser_owner(headers);
+    match state.browser_owners.lock().await.get(id) {
+        Some(session_owner) if session_owner == &owner => Ok(()),
+        Some(_) => Err(ApiError::Unauthorized),
+        None => Err(ApiError::NotFound),
+    }
 }
 
 fn firecrawl_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<Json<T>, ApiError> {
@@ -2540,6 +2957,8 @@ mod tests {
             cache: CacheStore::from_env(),
             crawls: CrawlStore::unavailable("not needed"),
             parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         };
         let mut document = json!({
             "markdown": "# Example\n\nA useful summary paragraph.",
@@ -2786,11 +3205,53 @@ mod tests {
                     data: Some(Bytes::from_static(b"<h1>Upload</h1>")),
                 },
             )]))),
+            browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         };
         let upload = take_parse_upload(&state, "upload-token").await.unwrap();
         assert_eq!(upload.filename, "upload.html");
         assert_eq!(upload.data.unwrap(), Bytes::from_static(b"<h1>Upload</h1>"));
         assert!(take_parse_upload(&state, "upload-token").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn browser_sessions_are_scoped_to_the_calling_key() {
+        let state = AppState {
+            client: reqwest::Client::new(),
+            cache: CacheStore::from_env(),
+            crawls: CrawlStore::unavailable("not needed"),
+            parse_uploads: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            browser_owners: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            scrape_handoffs: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        };
+        let first = HeaderMap::from_iter([(
+            axum::http::header::AUTHORIZATION,
+            "Bearer first".parse().unwrap(),
+        )]);
+        let second = HeaderMap::from_iter([(
+            axum::http::header::AUTHORIZATION,
+            "Bearer second".parse().unwrap(),
+        )]);
+        state
+            .browser_owners
+            .lock()
+            .await
+            .insert("session".to_string(), browser_owner(&first));
+        assert!(require_browser_owner(&state, &first, "session")
+            .await
+            .is_ok());
+        assert!(matches!(
+            require_browser_owner(&state, &second, "session").await,
+            Err(ApiError::Unauthorized)
+        ));
+
+        let create: BrowserCreateRequest = serde_json::from_value(json!({})).unwrap();
+        assert_eq!((create.ttl, create.activity_ttl), (600, 300));
+        let execute: BrowserExecuteRequest = serde_json::from_value(json!({
+            "code": "document.title"
+        }))
+        .unwrap();
+        assert_eq!(execute.language, "node");
     }
 
     #[test]

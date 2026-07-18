@@ -161,6 +161,20 @@ class DocumentParseResponse(BaseModel):
     metadata: dict[str, Any]
 
 
+class BrowserSessionCreateRequest(BaseModel):
+    ttl: int = Field(default=600, ge=30, le=3600)
+    activity_ttl: int = Field(default=300, alias="activityTtl", ge=10, le=3600)
+    initial_url: str | None = Field(default=None, alias="initialUrl")
+    storage_state: dict[str, Any] | None = Field(default=None, alias="storageState")
+    record: bool = True
+
+
+class BrowserSessionExecuteRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=100000)
+    language: Literal["python", "node", "bash"] = "node"
+    timeout: int = Field(default=30, ge=1, le=300)
+
+
 class ProcessingResponse(BaseModel):
     job_id: str = Field(alias="jobId")
     processing: bool = True
@@ -190,6 +204,7 @@ class BeeEngineScrapeResponse(BaseModel):
     action_results: list[ActionResult] = Field(default_factory=list, alias="actionResults")
     used_mobile_proxy: bool = Field(default=False, alias="usedMobileProxy")
     timezone: str | None = None
+    storage_state: dict[str, Any] | None = Field(default=None, alias="storageState")
 
 
 class FailedResponse(BaseModel):

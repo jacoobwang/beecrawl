@@ -81,11 +81,11 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## 9. Persistent browser sessions
 
-- [ ] Add create, list, execute, and delete session APIs.
-- [ ] Persist cookies and browser state for the session lifetime.
-- [ ] Add scrape-to-interactive-browser handoff.
-- [ ] Add session replay metadata and page snapshots.
-- [ ] Add session expiry, ownership, concurrency, and cleanup.
+- [x] Add create, list, execute, and delete session APIs.
+- [x] Persist cookies and browser state for the session lifetime.
+- [x] Add scrape-to-interactive-browser handoff.
+- [x] Add session replay metadata and page snapshots.
+- [x] Add session expiry, ownership, concurrency, and cleanup.
 
 ## 10. Higher-level workflows
 

@@ -148,6 +148,7 @@ pub async fn scrape_with_cache(
         links,
         screenshot,
         actions: page.actions,
+        browser_state: page.browser_state,
         metadata: WebExtractMetadata {
             title: page.title,
             language: page.language,
@@ -621,6 +622,7 @@ async fn fetch_page_with_tls(
         fallback_reason: fingerprint_failure.clone(),
         proxy_used: proxy.is_some(),
         actions: None,
+        browser_state: None,
     };
     if let Some(reason) = fingerprint_failure {
         page.engine_outcomes.insert(
@@ -731,6 +733,7 @@ async fn fetch_page_with_fingerprint_service(
         fallback_reason: None,
         proxy_used: proxy.is_some(),
         actions: None,
+        browser_state: None,
     })
 }
 
@@ -832,6 +835,7 @@ async fn render_page_at(
         fallback_reason: None,
         proxy_used: request.proxy.is_some(),
         actions,
+        browser_state: rendered.storage_state,
     })
 }
 
@@ -1813,6 +1817,7 @@ mod tests {
             fallback_reason: None,
             proxy_used: false,
             actions: None,
+            browser_state: None,
         };
         let article = "# Useful guide\n\n".to_string() + &"substantive content ".repeat(100);
         let challenge = "# Just a moment\n\nVerify you are human. CAPTCHA";
@@ -1849,6 +1854,7 @@ mod tests {
                 json!({"idx": 1, "type": "executeJavascript", "result": {"return": {"type": "str", "value": "ok"}}}),
                 json!({"idx": 2, "type": "pdf", "result": {"data": "data:application/pdf;base64,pdf"}}),
             ],
+            storage_state: None,
         };
         let actions = action_response(&rendered);
         assert_eq!(actions["results"].as_array().unwrap().len(), 3);

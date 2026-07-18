@@ -6,6 +6,7 @@ import os
 import socket
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 from fastapi import FastAPI, HTTPException
 
@@ -15,23 +16,38 @@ from bee_engine.models import (
     BeeEngineScrapeRequest,
     BeeEngineScrapeResponse,
     BeeEngineStatusResponse,
+    BrowserSessionCreateRequest,
+    BrowserSessionExecuteRequest,
     FingerprintFetchRequest,
     FingerprintFetchResponse,
     DocumentParseRequest,
     DocumentParseResponse,
     ProcessingResponse,
 )
+from bee_engine.sessions import BrowserSessionStore, serialize_result, session_json, snapshot_json
 
 _browser_pool = BrowserPool()
 _job_store = JobStore(_browser_pool)
+_session_store = BrowserSessionStore(_browser_pool)
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    cleanup_task = asyncio.create_task(_session_cleanup_loop())
     try:
         yield
     finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+        await _session_store.close()
         await _browser_pool.close()
+
+
+async def _session_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(30)
+        await _session_store.cleanup()
 
 
 app = FastAPI(
@@ -51,6 +67,7 @@ async def health() -> dict:
         "version": app.version,
         "capacity": capacity,
         "jobs": await _job_store.health(),
+        "sessions": await _session_store.health(),
         "engines": {
             "playwright": True,
             "chromeCdp": True,
@@ -133,6 +150,79 @@ def _proxy_url(proxy) -> str:
     if parsed.port:
         host += f":{parsed.port}"
     return urlunsplit((parsed.scheme, f"{credentials}@{host}", parsed.path, parsed.query, ""))
+
+
+@app.post("/sessions")
+async def create_session(request: BrowserSessionCreateRequest) -> dict:
+    try:
+        session = await _session_store.create(
+            ttl=request.ttl,
+            activity_ttl=request.activity_ttl,
+            initial_url=request.initial_url,
+            storage_state=request.storage_state,
+            record=request.record,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Could not create browser session: {exc}"
+        ) from exc
+    return session_json(session)
+
+
+@app.get("/sessions")
+async def list_sessions() -> dict:
+    return {"sessions": [session_json(session) for session in await _session_store.list()]}
+
+
+@app.post("/sessions/{session_id}/execute")
+async def execute_session(session_id: str, request: BrowserSessionExecuteRequest) -> dict:
+    try:
+        result = await _session_store.execute(
+            session_id, code=request.code, language=request.language, timeout=request.timeout
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Browser session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=408, detail="Browser execution timed out") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Browser execution failed: {exc}") from exc
+    return {
+        "stdout": "",
+        "result": serialize_result(result),
+        "stderr": "",
+        "exitCode": 0,
+        "killed": False,
+    }
+
+
+@app.get("/sessions/{session_id}/replay")
+async def session_replay(session_id: str) -> dict:
+    try:
+        snapshots = await _session_store.replay(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Browser session not found") from exc
+    return {"pages": [snapshot_json(snapshot) for snapshot in snapshots]}
+
+
+@app.get("/sessions/{session_id}/replay/{page_id}")
+async def session_replay_page(session_id: str, page_id: str) -> dict:
+    try:
+        return snapshot_json(await _session_store.replay_page(session_id, page_id), True)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Browser replay page not found") from exc
+
+
+@app.delete("/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict:
+    try:
+        duration = await _session_store.delete(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Browser session not found") from exc
+    return {"ok": True, "sessionDurationMs": duration}
 
 
 @app.post("/scrape", response_model=BeeEngineScrapeResponse | ProcessingResponse)

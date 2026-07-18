@@ -26,6 +26,13 @@ DELETE /v2/batch/scrape/{id}
 GET    /v2/batch/scrape/{id}/errors
 POST   /v2/extract
 POST   /v2/search
+POST   /v2/browser
+GET    /v2/browser
+POST   /v2/browser/{id}/execute
+GET    /v2/browser/{id}/replay
+GET    /v2/browser/{id}/replay/{pageId}
+DELETE /v2/browser/{id}
+POST   /v2/scrape/{scrapeId}/interact
 ```
 
 Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
@@ -172,6 +179,18 @@ web search uses configured SearXNG with DuckDuckGo fallback. Set
 `asyncScraping: true` to scrape up to eight results concurrently and
 `highlights: true` to return query-relevant passages from scraped content (or
 provider snippets when content is unavailable).
+
+Persistent browser sessions are available under both `/v2/browser` and the
+`/v2/interact` alias. A session keeps one Playwright context and page alive, so
+cookies, local storage, and page JavaScript state survive executions. Node
+executions run in the page context; replay endpoints list up to 50 timestamped
+page snapshots and return their screenshots. Sessions default to a 10-minute
+TTL and 5-minute inactivity TTL, are isolated by API key, limited by
+`BEE_ENGINE_MAX_SESSIONS` (default 8), and cleaned every 30 seconds.
+
+Browser-rendered scrape results retain a four-hour handoff snapshot. Use the
+returned `metadata.scrapeId` with `POST /v2/scrape/{scrapeId}/interact` to
+create a session initialized with the final URL, cookies, and browser storage.
 
 Batch scrape uses the same Postgres-backed queue and worker as crawl. Crawl and
 batch status responses include `id`, `expiresAt`, and a `next` URL while more

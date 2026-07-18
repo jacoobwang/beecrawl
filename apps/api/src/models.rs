@@ -486,6 +486,8 @@ pub struct WebExtractScrapeResponse {
     pub screenshot: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions: Option<Value>,
+    #[serde(skip)]
+    pub browser_state: Option<Value>,
     pub metadata: WebExtractMetadata,
 }
 
@@ -919,6 +921,7 @@ pub struct ProviderPage {
     pub fallback_reason: Option<String>,
     pub proxy_used: bool,
     pub actions: Option<Value>,
+    pub browser_state: Option<Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -939,6 +942,8 @@ pub struct BeeEngineScrapeResponse {
     pub action_content: Vec<Value>,
     #[serde(rename = "actionResults", default)]
     pub action_results: Vec<Value>,
+    #[serde(rename = "storageState", default)]
+    pub storage_state: Option<Value>,
 }
 
 fn default_formats() -> Vec<String> {
