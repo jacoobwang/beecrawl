@@ -67,6 +67,23 @@ class BeeEngineScrapeRequest(BaseModel):
     proxy: ProxySettings | None = None
 
 
+class FingerprintFetchRequest(BaseModel):
+    url: str = Field(..., min_length=1)
+    method: Literal["GET"] = "GET"
+    headers: dict[str, str] = Field(default_factory=dict)
+    profile: str = "chrome_124"
+    timeout_ms: int = Field(default=30000, alias="timeoutMs", ge=1000, le=300000)
+    skip_tls_verification: bool = Field(default=False, alias="skipTlsVerification")
+    proxy: ProxySettings | None = None
+
+
+class FingerprintFetchResponse(BaseModel):
+    status: int
+    url: str
+    headers: dict[str, str]
+    body: str
+
+
 class ProcessingResponse(BaseModel):
     job_id: str = Field(alias="jobId")
     processing: bool = True

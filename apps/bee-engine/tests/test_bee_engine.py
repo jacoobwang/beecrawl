@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from bee_engine import app as app_module
 from bee_engine.jobs import JobStore
 from bee_engine.browser import _context_options, _uses_stealth
-from bee_engine.models import BeeEngineScrapeRequest, BeeEngineScrapeResponse
+from bee_engine.models import BeeEngineScrapeRequest, BeeEngineScrapeResponse, ProxySettings
 
 
 class FakeBrowserPool:
@@ -115,6 +115,19 @@ def test_proxy_settings_are_forwarded_to_browser_context() -> None:
 
     request.proxy.mode = "enhanced"
     assert _uses_stealth(request)
+
+
+def test_fingerprint_proxy_url_preserves_encoded_credentials() -> None:
+    proxy = ProxySettings(
+        mode="stealth",
+        server="http://proxy.example.com:8080/",
+        username="bee user",
+        password="p@ss",
+    )
+    assert (
+        app_module._proxy_url(proxy)
+        == "http://bee%20user:p%40ss@proxy.example.com:8080/"
+    )
 
 
 def test_scrape_instant_return_status_and_delete() -> None:

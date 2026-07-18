@@ -5,6 +5,7 @@ use std::time::Instant;
 use ego_tree::NodeRef;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, USER_AGENT};
 use scraper::{ElementRef, Html, Node, Selector};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -429,6 +430,24 @@ async fn fetch_page_with_tls(
     proxy: Option<&crate::models::ProxyConfig>,
 ) -> Result<ProviderPage, WebExtractError> {
     let normalized = normalize_url(raw_url)?;
+    if let Some(endpoint) = std::env::var("BEECRAWL_TLS_CLIENT_URL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        if let Ok(page) = fetch_page_with_fingerprint_service(
+            client,
+            &endpoint,
+            &normalized,
+            timeout_seconds,
+            skip_tls_verification,
+            headers,
+            proxy,
+        )
+        .await
+        {
+            return Ok(page);
+        }
+    }
     let configured_client;
     let client = if skip_tls_verification || proxy.is_some() {
         let mut builder =
@@ -473,6 +492,82 @@ async fn fetch_page_with_tls(
         title: metadata.get("title").cloned().flatten(),
         language: metadata.get("language").cloned().flatten(),
         provider: "http_static".to_string(),
+        rendered: false,
+        screenshot: None,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintFetchRequest<'a> {
+    url: &'a str,
+    method: &'static str,
+    headers: &'a HashMap<String, String>,
+    profile: String,
+    timeout_ms: u64,
+    skip_tls_verification: bool,
+    proxy: Option<&'a crate::models::ProxyConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintFetchResponse {
+    status: u16,
+    url: String,
+    body: String,
+}
+
+async fn fetch_page_with_fingerprint_service(
+    client: &reqwest::Client,
+    endpoint: &str,
+    normalized: &str,
+    timeout_seconds: u64,
+    skip_tls_verification: bool,
+    headers: &HashMap<String, String>,
+    proxy: Option<&crate::models::ProxyConfig>,
+) -> Result<ProviderPage, WebExtractError> {
+    let request = FingerprintFetchRequest {
+        url: normalized,
+        method: "GET",
+        headers,
+        profile: std::env::var("BEECRAWL_TLS_CLIENT_PROFILE")
+            .unwrap_or_else(|_| "chrome_124".to_string()),
+        timeout_ms: timeout_seconds.saturating_mul(1_000),
+        skip_tls_verification,
+        proxy,
+    };
+    let response = client
+        .post(endpoint)
+        .json(&request)
+        .timeout(std::time::Duration::from_secs(timeout_seconds.max(1) + 2))
+        .send()
+        .await
+        .map_err(|error| WebExtractError::FetchFailed(error.to_string()))?;
+    if !response.status().is_success() {
+        return Err(WebExtractError::FetchFailed(format!(
+            "TLS client service returned HTTP {}",
+            response.status()
+        )));
+    }
+    let response: FingerprintFetchResponse = response
+        .json()
+        .await
+        .map_err(|error| WebExtractError::FetchFailed(error.to_string()))?;
+    if !(200..400).contains(&response.status) {
+        return Err(WebExtractError::FetchFailed(format!(
+            "TLS client fetch returned HTTP {}",
+            response.status
+        )));
+    }
+    let (_, metadata) = extract_markdown(&response.body, &response.url);
+    Ok(ProviderPage {
+        url: normalized.to_string(),
+        final_url: response.url,
+        html: response.body,
+        status_code: Some(response.status),
+        title: metadata.get("title").cloned().flatten(),
+        language: metadata.get("language").cloned().flatten(),
+        provider: "tls_client".to_string(),
         rendered: false,
         screenshot: None,
     })
@@ -1387,6 +1482,39 @@ mod tests {
             "value".to_string()
         )]))
         .is_err());
+    }
+
+    #[test]
+    fn fingerprint_service_contract_carries_browser_and_network_settings() {
+        let headers = HashMap::from([("Accept-Language".to_string(), "en-US".to_string())]);
+        let proxy = crate::models::ProxyConfig {
+            mode: "stealth".to_string(),
+            server: "http://proxy.example.com:8080/".to_string(),
+            username: Some("bee".to_string()),
+            password: Some("secret".to_string()),
+        };
+        let request = FingerprintFetchRequest {
+            url: "https://example.com/",
+            method: "GET",
+            headers: &headers,
+            profile: "chrome_124".to_string(),
+            timeout_ms: 30_000,
+            skip_tls_verification: false,
+            proxy: Some(&proxy),
+        };
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(value["profile"], "chrome_124");
+        assert_eq!(value["proxy"]["mode"], "stealth");
+        assert_eq!(value["headers"]["Accept-Language"], "en-US");
+
+        let response: FingerprintFetchResponse = serde_json::from_value(json!({
+            "status": 200,
+            "url": "https://example.com/final",
+            "headers": { "content-type": "text/html" },
+            "body": "<html><title>Example</title></html>"
+        }))
+        .unwrap();
+        assert_eq!(response.status, 200);
     }
 
     #[test]

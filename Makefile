@@ -31,7 +31,7 @@ migrate-up:
 	./scripts/sqlx.sh migrate run --source apps/api/migrations
 
 bee-engine:
-	$(UV) run --extra browser uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)
+	$(UV) run --extra browser --extra fingerprint uvicorn bee_engine.app:app --reload --app-dir apps/bee-engine --host $(HOST) --port $(BEE_ENGINE_PORT)
 
 playwright-install:
 	$(UV) run --extra browser playwright install chromium

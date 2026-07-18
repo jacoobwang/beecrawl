@@ -11,6 +11,8 @@ from bee_engine.models import (
     BeeEngineScrapeRequest,
     BeeEngineScrapeResponse,
     BeeEngineStatusResponse,
+    FingerprintFetchRequest,
+    FingerprintFetchResponse,
     ProcessingResponse,
 )
 
@@ -37,6 +39,53 @@ app = FastAPI(
 @app.get("/health")
 async def health() -> dict[str, bool]:
     return {"ok": True}
+
+
+@app.post("/fetch", response_model=FingerprintFetchResponse)
+async def fingerprint_fetch(request: FingerprintFetchRequest) -> FingerprintFetchResponse:
+    try:
+        from curl_cffi.requests import AsyncSession
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Install the fingerprint extra to enable TLS impersonation",
+        ) from exc
+
+    proxy = _proxy_url(request.proxy) if request.proxy else None
+    try:
+        async with AsyncSession(impersonate=request.profile.replace("_", "")) as session:
+            response = await session.request(
+                request.method,
+                request.url,
+                headers=request.headers,
+                proxy=proxy,
+                timeout=request.timeout_ms / 1000,
+                verify=not request.skip_tls_verification,
+                allow_redirects=True,
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Fingerprint fetch failed: {exc}") from exc
+    return FingerprintFetchResponse(
+        status=response.status_code,
+        url=str(response.url),
+        headers={str(key): str(value) for key, value in response.headers.items()},
+        body=response.text,
+    )
+
+
+def _proxy_url(proxy) -> str:
+    if not proxy.username:
+        return proxy.server
+    from urllib.parse import quote, urlsplit, urlunsplit
+
+    parsed = urlsplit(proxy.server)
+    credentials = quote(proxy.username, safe="")
+    if proxy.password is not None:
+        credentials += f":{quote(proxy.password, safe='')}"
+    host = parsed.hostname or ""
+    if parsed.port:
+        host += f":{parsed.port}"
+    return urlunsplit((parsed.scheme, f"{credentials}@{host}", parsed.path, parsed.query, ""))
 
 
 @app.post("/scrape", response_model=BeeEngineScrapeResponse | ProcessingResponse)

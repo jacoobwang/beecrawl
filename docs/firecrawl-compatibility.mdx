@@ -95,6 +95,11 @@ the scrape cache key.
 matching Firecrawl proxy modes. `auto` selects basic, enhanced, then stealth in
 that order based on configured capacity. Stealth/enhanced browser contexts also
 install automation-evasion navigator shims and report residential proxy use.
+For non-rendered requests, `BEECRAWL_TLS_CLIENT_URL` enables an HTTP fetch
+service that impersonates the browser profile selected by
+`BEECRAWL_TLS_CLIENT_PROFILE` (default `chrome_124`). The adapter forwards
+headers, proxy credentials, timeout, and TLS policy, and safely falls back to
+the built-in HTTP client when the service is unavailable.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
