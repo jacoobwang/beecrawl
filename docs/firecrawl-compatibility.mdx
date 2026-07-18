@@ -62,6 +62,9 @@ results and accepts timeouts from one second through five minutes.
 the URL pathname. With `regexOnFullURL=true`, the same expressions are applied
 to the complete URL. Exclusions take precedence over inclusions for both the
 starting page and discovered pages.
+The crawl queue persists `sitemap=skip|include|only`. By default discovery stays
+under the starting URL's path and host; `crawlEntireDomain`, `allowSubdomains`,
+and `allowExternalLinks` expand that scope in that order.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:

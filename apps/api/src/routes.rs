@@ -503,6 +503,9 @@ async fn firecrawl_v2_crawl(
             exclude_paths: request.exclude_paths,
             regex_on_full_url: request.regex_on_full_url.unwrap_or(false),
             include_subdomains: request.allow_subdomains,
+            allow_external_links: request.allow_external_links.unwrap_or(false),
+            crawl_entire_domain: request.crawl_entire_domain.unwrap_or(false),
+            sitemap: request.sitemap,
             ignore_query_parameters: request.ignore_query_parameters,
             ignore_robots_txt: request.ignore_robots_txt.unwrap_or(false),
             robots_user_agent: request.robots_user_agent,
@@ -851,18 +854,15 @@ fn validate_firecrawl_scrape_options(
 }
 
 fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Result<(), ApiError> {
+    if !matches!(request.sitemap.as_str(), "skip" | "include" | "only") {
+        return Err(ApiError::InvalidRequest(
+            "sitemap must be one of skip, include, or only".to_string(),
+        ));
+    }
     let unsupported = [
         (
             request.deduplicate_similar_urls == Some(false),
             "deduplicateSimilarURLs=false",
-        ),
-        (
-            request.crawl_entire_domain == Some(true),
-            "crawlEntireDomain=true",
-        ),
-        (
-            request.allow_external_links == Some(true),
-            "allowExternalLinks=true",
         ),
         (
             request.zero_data_retention == Some(true),
@@ -1628,6 +1628,9 @@ mod tests {
         assert!(crawl.include_paths.is_empty());
         assert!(crawl.exclude_paths.is_empty());
         assert_eq!(crawl.regex_on_full_url, None);
+        assert_eq!(crawl.sitemap, "include");
+        assert_eq!(crawl.allow_external_links, None);
+        assert_eq!(crawl.crawl_entire_domain, None);
 
         let map: FirecrawlV2MapRequest = serde_json::from_value(json!({
             "url": "https://example.com"

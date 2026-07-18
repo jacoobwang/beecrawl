@@ -191,6 +191,8 @@ pub async fn map_site(
         request.search.as_deref(),
         request.limit,
         request.include_subdomains,
+        request.allow_external_links,
+        request.crawl_entire_domain,
         sitemap_mode,
         request.ignore_query_parameters,
     )
@@ -707,6 +709,8 @@ async fn discover_links(
     search: Option<&str>,
     limit: usize,
     include_subdomains: bool,
+    allow_external_links: bool,
+    crawl_entire_domain: bool,
     sitemap: &str,
     ignore_query_parameters: bool,
 ) -> Result<(Vec<String>, String), WebExtractError> {
@@ -731,6 +735,8 @@ async fn discover_links(
         links,
         search,
         include_subdomains,
+        allow_external_links,
+        crawl_entire_domain,
         ignore_query_parameters,
     );
     let provider = if providers.is_empty() {
@@ -800,6 +806,8 @@ fn filter_links(
     links: Vec<String>,
     search: Option<&str>,
     include_subdomains: bool,
+    allow_external_links: bool,
+    crawl_entire_domain: bool,
     ignore_query_parameters: bool,
 ) -> Vec<String> {
     let Ok(base) = Url::parse(base_url) else {
@@ -819,7 +827,10 @@ fn filter_links(
         let host = parsed.host_str().unwrap_or("").trim_start_matches("www.");
         let same_site =
             host == base_host || (include_subdomains && host.ends_with(&format!(".{base_host}")));
-        if !same_site {
+        if !allow_external_links && !same_site {
+            continue;
+        }
+        if !crawl_entire_domain && same_site && !parsed.path().starts_with(base.path()) {
             continue;
         }
         if let Some(search) = &search {
@@ -1269,6 +1280,54 @@ mod tests {
         let links = extract_links(html, "https://example.com/start");
 
         assert_eq!(links, vec!["https://example.com/docs".to_string()]);
+    }
+
+    #[test]
+    fn map_domain_policies_expand_scope_explicitly() {
+        let links = vec![
+            "https://example.com/docs/page".to_string(),
+            "https://example.com/other".to_string(),
+            "https://api.example.com/docs/api".to_string(),
+            "https://external.test/page".to_string(),
+        ];
+        assert_eq!(
+            filter_links(
+                "https://example.com/docs",
+                links.clone(),
+                None,
+                false,
+                false,
+                false,
+                false,
+            ),
+            ["https://example.com/docs/page"]
+        );
+        assert_eq!(
+            filter_links(
+                "https://example.com/docs",
+                links.clone(),
+                None,
+                true,
+                false,
+                true,
+                false,
+            )
+            .len(),
+            3
+        );
+        assert_eq!(
+            filter_links(
+                "https://example.com/docs",
+                links,
+                None,
+                false,
+                true,
+                false,
+                false,
+            )
+            .len(),
+            3
+        );
     }
 
     #[test]

@@ -170,6 +170,8 @@ pub struct FirecrawlV2CrawlRequest {
     pub crawl_entire_domain: Option<bool>,
     #[serde(rename = "allowExternalLinks")]
     pub allow_external_links: Option<bool>,
+    #[serde(default = "default_sitemap")]
+    pub sitemap: String,
     #[serde(rename = "ignoreRobotsTxt")]
     pub ignore_robots_txt: Option<bool>,
     #[serde(rename = "robotsUserAgent")]
@@ -328,6 +330,8 @@ impl From<FirecrawlV2MapRequest> for WebExtractMapRequest {
             search: request.search,
             limit: request.limit,
             include_subdomains: request.include_subdomains,
+            allow_external_links: false,
+            crawl_entire_domain: true,
             sitemap: request.sitemap,
             ignore_sitemap: false,
             ignore_query_parameters: request.ignore_query_parameters,
@@ -370,6 +374,10 @@ pub struct WebExtractMapRequest {
     pub limit: usize,
     #[serde(rename = "includeSubdomains", alias = "include_subdomains", default)]
     pub include_subdomains: bool,
+    #[serde(default)]
+    pub allow_external_links: bool,
+    #[serde(default)]
+    pub crawl_entire_domain: bool,
     #[serde(default = "default_sitemap")]
     pub sitemap: String,
     #[serde(default)]
@@ -408,6 +416,12 @@ pub struct CrawlRequest {
     pub regex_on_full_url: bool,
     #[serde(rename = "includeSubdomains", default)]
     pub include_subdomains: bool,
+    #[serde(rename = "allowExternalLinks", default)]
+    pub allow_external_links: bool,
+    #[serde(rename = "crawlEntireDomain", default)]
+    pub crawl_entire_domain: bool,
+    #[serde(default = "default_sitemap")]
+    pub sitemap: String,
     #[serde(
         rename = "ignoreQueryParameters",
         default = "default_ignore_query_parameters"

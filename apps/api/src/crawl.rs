@@ -100,7 +100,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now() + make_interval(days => $17))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now() + make_interval(days => $20))",
         )
         .bind(id)
         .bind(&url)
@@ -110,6 +110,9 @@ impl CrawlStore {
         .bind(serde_json::to_value(&request.exclude_paths).expect("patterns serialize"))
         .bind(request.regex_on_full_url)
         .bind(request.include_subdomains)
+        .bind(request.allow_external_links)
+        .bind(request.crawl_entire_domain)
+        .bind(&request.sitemap)
         .bind(request.ignore_query_parameters)
         .bind(request.ignore_robots_txt)
         .bind(&request.robots_user_agent)
@@ -366,7 +369,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_paths, exclude_paths, regex_on_full_url, include_subdomains, allow_external_links, crawl_entire_domain, sitemap, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -380,6 +383,9 @@ impl CrawlStore {
                 .map_err(|error| CrawlStoreError::Database(sqlx::Error::Decode(Box::new(error))))?,
             regex_on_full_url: row.try_get("regex_on_full_url")?,
             include_subdomains: row.try_get("include_subdomains")?,
+            allow_external_links: row.try_get("allow_external_links")?,
+            crawl_entire_domain: row.try_get("crawl_entire_domain")?,
+            sitemap: row.try_get("sitemap")?,
             ignore_query_parameters: row.try_get("ignore_query_parameters")?,
             ignore_robots_txt: row.try_get("ignore_robots_txt")?,
             robots_user_agent: row.try_get("robots_user_agent")?,
@@ -554,7 +560,10 @@ async fn process_task(
     .await;
     match page {
         Ok(page) => {
-            let links = if options.job_type == "crawl" && task.depth < options.max_depth {
+            let links = if options.job_type == "crawl"
+                && task.depth < options.max_depth
+                && !(options.sitemap == "only" && task.depth > 0)
+            {
                 web_extract::map_site(
                     client,
                     WebExtractMapRequest {
@@ -562,8 +571,10 @@ async fn process_task(
                         search: None,
                         limit: options.page_limit,
                         include_subdomains: options.include_subdomains,
+                        allow_external_links: options.allow_external_links,
+                        crawl_entire_domain: options.crawl_entire_domain,
                         sitemap: if task.depth == 0 {
-                            "include".to_string()
+                            options.sitemap.clone()
                         } else {
                             "skip".to_string()
                         },
@@ -613,6 +624,9 @@ struct CrawlOptions {
     exclude_paths: Vec<String>,
     regex_on_full_url: bool,
     include_subdomains: bool,
+    allow_external_links: bool,
+    crawl_entire_domain: bool,
+    sitemap: String,
     ignore_query_parameters: bool,
     ignore_robots_txt: bool,
     robots_user_agent: Option<String>,
@@ -735,6 +749,9 @@ mod tests {
             exclude_paths: Vec::new(),
             regex_on_full_url: false,
             include_subdomains: false,
+            allow_external_links: false,
+            crawl_entire_domain: false,
+            sitemap: "include".to_string(),
             ignore_query_parameters: true,
             ignore_robots_txt: false,
             robots_user_agent: None,
