@@ -14,8 +14,9 @@ use uuid::Uuid;
 
 use crate::cache::CacheStore;
 use crate::models::{
-    BeeEngineScrapeResponse, ProviderPage, WebExtractMapMetadata, WebExtractMapRequest,
-    WebExtractMapResponse, WebExtractMetadata, WebExtractScrapeRequest, WebExtractScrapeResponse,
+    BeeEngineScrapeResponse, EngineOutcome, ProviderPage, WebExtractMapMetadata,
+    WebExtractMapRequest, WebExtractMapResponse, WebExtractMetadata, WebExtractScrapeRequest,
+    WebExtractScrapeResponse,
 };
 
 const DEFAULT_USER_AGENT: &str =
@@ -149,6 +150,9 @@ pub async fn scrape_with_cache(
             provider: page.provider,
             rendered: page.rendered,
             elapsed_ms: Some(started.elapsed().as_millis()),
+            engine_outcomes: page.engine_outcomes,
+            fallback_reason: page.fallback_reason,
+            proxy_used: page.proxy_used,
         },
     })
 }
@@ -227,7 +231,7 @@ async fn scrape_page(
                 if !markdown.trim().is_empty() {
                     Ok((page, markdown, metadata))
                 } else {
-                    let page = fetch_page_with_tls(
+                    let mut page = fetch_page_with_tls(
                         client,
                         &request.url,
                         request.timeout_seconds,
@@ -236,11 +240,17 @@ async fn scrape_page(
                         request.proxy.as_ref(),
                     )
                     .await?;
+                    page.engine_outcomes.insert(
+                        0,
+                        engine_outcome("bee_engine", "rejected", Some("empty content"), None, None),
+                    );
+                    page.fallback_reason = Some("bee_engine returned empty content".to_string());
                     Ok(page_to_markdown(page))
                 }
             }
-            Err(_) => {
-                let page = fetch_page_with_tls(
+            Err(error) => {
+                let reason = error.to_string();
+                let mut page = fetch_page_with_tls(
                     client,
                     &request.url,
                     request.timeout_seconds,
@@ -249,6 +259,11 @@ async fn scrape_page(
                     request.proxy.as_ref(),
                 )
                 .await?;
+                page.engine_outcomes.insert(
+                    0,
+                    engine_outcome("bee_engine", "failed", Some(&reason), None, None),
+                );
+                page.fallback_reason = Some(reason);
                 Ok(page_to_markdown(page))
             }
         },
@@ -430,11 +445,12 @@ async fn fetch_page_with_tls(
     proxy: Option<&crate::models::ProxyConfig>,
 ) -> Result<ProviderPage, WebExtractError> {
     let normalized = normalize_url(raw_url)?;
+    let mut fingerprint_failure = None;
     if let Some(endpoint) = std::env::var("BEECRAWL_TLS_CLIENT_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
     {
-        if let Ok(page) = fetch_page_with_fingerprint_service(
+        match fetch_page_with_fingerprint_service(
             client,
             &endpoint,
             &normalized,
@@ -445,7 +461,8 @@ async fn fetch_page_with_tls(
         )
         .await
         {
-            return Ok(page);
+            Ok(page) => return Ok(page),
+            Err(error) => fingerprint_failure = Some(error.to_string()),
         }
     }
     let configured_client;
@@ -484,7 +501,7 @@ async fn fetch_page_with_tls(
         .await
         .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
     let (_, metadata) = extract_markdown(&html, &final_url);
-    Ok(ProviderPage {
+    let mut page = ProviderPage {
         url: normalized,
         final_url,
         html,
@@ -494,7 +511,40 @@ async fn fetch_page_with_tls(
         provider: "http_static".to_string(),
         rendered: false,
         screenshot: None,
-    })
+        engine_outcomes: vec![engine_outcome(
+            "http_static",
+            "success",
+            None,
+            Some(status.as_u16()),
+            None,
+        )],
+        fallback_reason: fingerprint_failure.clone(),
+        proxy_used: proxy.is_some(),
+    };
+    if let Some(reason) = fingerprint_failure {
+        page.engine_outcomes.insert(
+            0,
+            engine_outcome("tls_client", "failed", Some(&reason), None, None),
+        );
+    }
+    Ok(page)
+}
+
+fn engine_outcome(
+    engine: &str,
+    status: &str,
+    reason: Option<&str>,
+    status_code: Option<u16>,
+    elapsed_ms: Option<u128>,
+) -> EngineOutcome {
+    EngineOutcome {
+        engine: engine.to_string(),
+        status: status.to_string(),
+        reason: reason.map(str::to_string),
+        status_code,
+        elapsed_ms,
+        quality_score: None,
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -570,6 +620,15 @@ async fn fetch_page_with_fingerprint_service(
         provider: "tls_client".to_string(),
         rendered: false,
         screenshot: None,
+        engine_outcomes: vec![engine_outcome(
+            "tls_client",
+            "success",
+            None,
+            Some(response.status),
+            None,
+        )],
+        fallback_reason: None,
+        proxy_used: proxy.is_some(),
     })
 }
 
@@ -643,6 +702,15 @@ async fn render_page(
         provider: "bee_engine".to_string(),
         rendered: true,
         screenshot: rendered.screenshots.into_iter().next(),
+        engine_outcomes: vec![engine_outcome(
+            "bee_engine",
+            "success",
+            None,
+            rendered.page_status_code,
+            rendered.time_taken,
+        )],
+        fallback_reason: None,
+        proxy_used: request.proxy.is_some(),
     })
 }
 
@@ -1515,6 +1583,22 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(response.status, 200);
+    }
+
+    #[test]
+    fn engine_outcome_metadata_uses_firecrawl_friendly_camel_case() {
+        let value = serde_json::to_value(engine_outcome(
+            "bee_engine",
+            "failed",
+            Some("browser unavailable"),
+            Some(503),
+            Some(42),
+        ))
+        .unwrap();
+        assert_eq!(value["engine"], "bee_engine");
+        assert_eq!(value["statusCode"], 503);
+        assert_eq!(value["elapsedMs"], 42);
+        assert_eq!(value["reason"], "browser unavailable");
     }
 
     #[test]

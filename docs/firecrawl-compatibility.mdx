@@ -101,6 +101,11 @@ service that impersonates the browser profile selected by
 headers, proxy credentials, timeout, and TLS policy, and safely falls back to
 the built-in HTTP client when the service is unavailable.
 
+Scrape metadata reports the selected `engine`, ordered `engineOutcomes`, an
+optional `fallbackReason`, and `proxyUsed`. These fields expose automatic
+browser/TLS/static fallback decisions on scrape, batch, crawl, and webhook
+documents.
+
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling
 through the pinned official Python SDK while a local API is running:
 

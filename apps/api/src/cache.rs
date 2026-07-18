@@ -57,6 +57,9 @@ impl CacheStore {
             provider: row.try_get("provider").ok()?,
             rendered: row.try_get("rendered").ok()?,
             screenshot: row.try_get("screenshot").ok()?,
+            engine_outcomes: vec![],
+            fallback_reason: Some("served from scrape cache".to_string()),
+            proxy_used: false,
         })
     }
 
@@ -125,6 +128,9 @@ mod tests {
             provider: "http_static".to_string(),
             rendered: false,
             screenshot: Some("cached-image".to_string()),
+            engine_outcomes: vec![],
+            fallback_reason: None,
+            proxy_used: false,
         };
         store.put(key, &page).await;
         let cached = store.get(key, 3600, true).await.unwrap();

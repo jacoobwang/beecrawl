@@ -383,6 +383,27 @@ pub struct WebExtractMetadata {
     pub provider: String,
     pub rendered: bool,
     pub elapsed_ms: Option<u128>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub engine_outcomes: Vec<EngineOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_reason: Option<String>,
+    #[serde(default)]
+    pub proxy_used: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineOutcome {
+    pub engine: String,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score: Option<f32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -753,6 +774,9 @@ pub struct ProviderPage {
     pub provider: String,
     pub rendered: bool,
     pub screenshot: Option<String>,
+    pub engine_outcomes: Vec<EngineOutcome>,
+    pub fallback_reason: Option<String>,
+    pub proxy_used: bool,
 }
 
 #[derive(Debug, Deserialize)]

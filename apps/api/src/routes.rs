@@ -1581,6 +1581,10 @@ fn firecrawl_document(response: WebExtractScrapeResponse) -> serde_json::Value {
             "url": response.final_url,
             "statusCode": response.metadata.status_code,
             "scrapeId": response.request_id,
+            "engine": response.metadata.provider,
+            "engineOutcomes": response.metadata.engine_outcomes,
+            "fallbackReason": response.metadata.fallback_reason,
+            "proxyUsed": response.metadata.proxy_used,
         }
     })
 }

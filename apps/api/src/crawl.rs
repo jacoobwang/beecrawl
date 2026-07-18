@@ -823,6 +823,10 @@ fn webhook_document(page: &WebExtractScrapeResponse) -> Value {
             "url": page.final_url,
             "statusCode": page.metadata.status_code,
             "scrapeId": page.request_id,
+            "engine": page.metadata.provider,
+            "engineOutcomes": page.metadata.engine_outcomes,
+            "fallbackReason": page.metadata.fallback_reason,
+            "proxyUsed": page.metadata.proxy_used,
         }
     })
 }
@@ -1003,6 +1007,9 @@ mod tests {
                 provider: "test".to_string(),
                 rendered: false,
                 elapsed_ms: Some(1),
+                engine_outcomes: vec![],
+                fallback_reason: None,
+                proxy_used: false,
             },
         }
     }

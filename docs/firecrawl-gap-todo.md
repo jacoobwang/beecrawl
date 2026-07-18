@@ -50,7 +50,7 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 - [x] Add configurable basic proxy support.
 - [x] Add enhanced/stealth browser modes and proxy selection.
 - [x] Add TLS/browser fingerprint-aware HTTP fetching.
-- [ ] Add engine outcome metadata and fallback reasons.
+- [x] Add engine outcome metadata and fallback reasons.
 - [ ] Add content quality scoring and multi-engine selection.
 - [ ] Add distributed Bee Engine capacity and health reporting.
 
