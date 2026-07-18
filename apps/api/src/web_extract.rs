@@ -267,6 +267,156 @@ pub async fn fetch_page(
     fetch_page_with_tls(client, raw_url, timeout_seconds, false, &HashMap::new()).await
 }
 
+pub async fn robots_allows(
+    client: &reqwest::Client,
+    raw_url: &str,
+    user_agent: Option<&str>,
+    timeout_seconds: u64,
+) -> bool {
+    let Ok(url) = Url::parse(raw_url) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let robots_url = format!(
+        "{}://{}{}/robots.txt",
+        url.scheme(),
+        host,
+        url.port()
+            .map(|port| format!(":{port}"))
+            .unwrap_or_default()
+    );
+    let agent = user_agent.unwrap_or("FirecrawlAgent");
+    let response = client
+        .get(robots_url)
+        .header(USER_AGENT, agent)
+        .timeout(std::time::Duration::from_secs(timeout_seconds.max(1)))
+        .send()
+        .await;
+    let Ok(response) = response else {
+        return true;
+    };
+    if !response.status().is_success() {
+        return true;
+    }
+    let Ok(body) = response.text().await else {
+        return true;
+    };
+    let allowed = robots_text_allows(&body, &url, agent);
+    allowed
+        && (url.path() == "/" || url.path().ends_with('/') || {
+            let mut trailing = url.clone();
+            trailing.set_path(&format!("{}/", url.path()));
+            robots_text_allows(&body, &trailing, agent)
+        })
+}
+
+#[derive(Clone)]
+struct RobotsRule {
+    allow: bool,
+    pattern: String,
+}
+
+fn robots_text_allows(body: &str, url: &Url, user_agent: &str) -> bool {
+    let requested_agent = user_agent.to_ascii_lowercase();
+    let mut groups: Vec<(Vec<String>, Vec<RobotsRule>)> = Vec::new();
+    let mut agents = Vec::new();
+    let mut rules = Vec::new();
+    let mut seen_rule = false;
+    for raw_line in body.lines() {
+        let line = raw_line.split('#').next().unwrap_or_default().trim();
+        let Some((field, value)) = line.split_once(':') else {
+            continue;
+        };
+        let field = field.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if field == "user-agent" {
+            if seen_rule && !agents.is_empty() {
+                groups.push((std::mem::take(&mut agents), std::mem::take(&mut rules)));
+                seen_rule = false;
+            }
+            agents.push(value.to_ascii_lowercase());
+        } else if matches!(field.as_str(), "allow" | "disallow") && !agents.is_empty() {
+            seen_rule = true;
+            if !value.is_empty() {
+                rules.push(RobotsRule {
+                    allow: field == "allow",
+                    pattern: value.to_string(),
+                });
+            }
+        }
+    }
+    if !agents.is_empty() {
+        groups.push((agents, rules));
+    }
+
+    let best_agent_length = groups
+        .iter()
+        .flat_map(|(agents, _)| agents)
+        .filter_map(|agent| robots_agent_match(agent, &requested_agent))
+        .max();
+    let Some(best_agent_length) = best_agent_length else {
+        return true;
+    };
+    let mut path = url.path().to_string();
+    if let Some(query) = url.query() {
+        path.push('?');
+        path.push_str(query);
+    }
+    groups
+        .iter()
+        .filter(|(agents, _)| {
+            agents
+                .iter()
+                .any(|agent| robots_agent_match(agent, &requested_agent) == Some(best_agent_length))
+        })
+        .flat_map(|(_, rules)| rules)
+        .filter_map(|rule| robots_pattern_match(&rule.pattern, &path).map(|length| (rule, length)))
+        .max_by_key(|(rule, length)| (*length, rule.allow))
+        .is_none_or(|(rule, _)| rule.allow)
+}
+
+fn robots_agent_match(rule_agent: &str, requested_agent: &str) -> Option<usize> {
+    if rule_agent == "*" {
+        Some(0)
+    } else if requested_agent.contains(rule_agent) {
+        Some(rule_agent.len())
+    } else {
+        None
+    }
+}
+
+fn robots_pattern_match(pattern: &str, path: &str) -> Option<usize> {
+    let anchored = pattern.ends_with('$');
+    let pattern = pattern.strip_suffix('$').unwrap_or(pattern);
+    let pieces = pattern.split('*').collect::<Vec<_>>();
+    let mut offset = 0;
+    for (index, piece) in pieces.iter().enumerate() {
+        if piece.is_empty() {
+            continue;
+        }
+        if index == 0 {
+            if !path[offset..].starts_with(piece) {
+                return None;
+            }
+            offset += piece.len();
+        } else {
+            let found = path[offset..].find(piece)?;
+            offset += found + piece.len();
+        }
+    }
+    if anchored && offset != path.len() {
+        return None;
+    }
+    Some(
+        pattern
+            .chars()
+            .filter(|character| *character != '*')
+            .count(),
+    )
+}
+
 async fn fetch_page_with_tls(
     client: &reqwest::Client,
     raw_url: &str,
@@ -1198,5 +1348,48 @@ mod tests {
             normalize_url("http://127.0.0.1:8000"),
             Err(WebExtractError::BlockedByPolicy(_))
         ));
+    }
+
+    #[test]
+    fn robots_rules_use_the_most_specific_agent_and_path() {
+        let robots = r#"
+            User-agent: *
+            Disallow: /private
+            Allow: /private/public
+
+            User-agent: BeeBot
+            Disallow: /bee
+            Allow: /bee/feed$
+        "#;
+        let url = |path: &str| Url::parse(&format!("https://example.com{path}")).unwrap();
+
+        assert!(!robots_text_allows(
+            robots,
+            &url("/private/report"),
+            "OtherBot"
+        ));
+        assert!(robots_text_allows(
+            robots,
+            &url("/private/public"),
+            "OtherBot"
+        ));
+        assert!(!robots_text_allows(
+            robots,
+            &url("/bee/report"),
+            "BeeBot/1.0"
+        ));
+        assert!(robots_text_allows(robots, &url("/bee/feed"), "BeeBot/1.0"));
+        assert!(!robots_text_allows(
+            robots,
+            &url("/bee/feed/more"),
+            "BeeBot/1.0"
+        ));
+    }
+
+    #[test]
+    fn robots_allow_wins_when_rules_have_equal_specificity() {
+        let robots = "User-agent: *\nDisallow: /same\nAllow: /same";
+        let url = Url::parse("https://example.com/same").unwrap();
+        assert!(robots_text_allows(robots, &url, "FirecrawlAgent"));
     }
 }

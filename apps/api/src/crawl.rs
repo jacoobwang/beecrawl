@@ -97,7 +97,7 @@ impl CrawlStore {
         let pool = self.pool()?;
         let mut transaction = pool.begin().await?;
         sqlx::query(
-            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, now() + make_interval(days => $12))",
+            "INSERT INTO crawl_jobs (id, url, status, page_limit, max_depth, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, max_retries, expires_at) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now() + make_interval(days => $14))",
         )
         .bind(id)
         .bind(&url)
@@ -105,6 +105,8 @@ impl CrawlStore {
         .bind(request.max_depth as i32)
         .bind(request.include_subdomains)
         .bind(request.ignore_query_parameters)
+        .bind(request.ignore_robots_txt)
+        .bind(&request.robots_user_agent)
         .bind(request.timeout_seconds as i64)
         .bind(request.wait_for_ms as i64)
         .bind(&request.use_browser)
@@ -358,7 +360,7 @@ impl CrawlStore {
     }
 
     async fn options(&self, crawl_id: Uuid) -> Result<CrawlOptions, CrawlStoreError> {
-        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
+        let row = sqlx::query("SELECT job_type, page_limit, max_depth, include_subdomains, ignore_query_parameters, ignore_robots_txt, robots_user_agent, timeout_seconds, wait_for_ms, use_browser, skip_tls_verification, cancel_requested FROM crawl_jobs WHERE id = $1")
             .bind(crawl_id)
             .fetch_one(self.pool()?)
         .await?;
@@ -368,6 +370,8 @@ impl CrawlStore {
             max_depth: row.try_get::<i32, _>("max_depth")? as usize,
             include_subdomains: row.try_get("include_subdomains")?,
             ignore_query_parameters: row.try_get("ignore_query_parameters")?,
+            ignore_robots_txt: row.try_get("ignore_robots_txt")?,
+            robots_user_agent: row.try_get("robots_user_agent")?,
             timeout_seconds: row.try_get::<i64, _>("timeout_seconds")? as u64,
             wait_for_ms: row.try_get::<i64, _>("wait_for_ms")? as u64,
             use_browser: row.try_get("use_browser")?,
@@ -489,6 +493,22 @@ async fn process_task(
     if options.cancelled {
         return Ok(());
     }
+    if !options.ignore_robots_txt
+        && !web_extract::robots_allows(
+            client,
+            &task.url,
+            options.robots_user_agent.as_deref(),
+            options.timeout_seconds,
+        )
+        .await
+    {
+        return store
+            .finish_failure(
+                &task,
+                WebExtractError::BlockedByPolicy("robots.txt disallows URL".to_string()),
+            )
+            .await;
+    }
     let page = web_extract::scrape_with_cache(
         client,
         cache,
@@ -552,6 +572,8 @@ struct CrawlOptions {
     max_depth: usize,
     include_subdomains: bool,
     ignore_query_parameters: bool,
+    ignore_robots_txt: bool,
+    robots_user_agent: Option<String>,
     timeout_seconds: u64,
     wait_for_ms: u64,
     use_browser: String,
@@ -641,6 +663,8 @@ mod tests {
             max_depth: 0,
             include_subdomains: false,
             ignore_query_parameters: true,
+            ignore_robots_txt: false,
+            robots_user_agent: None,
             timeout_seconds: 5,
             wait_for_ms: 0,
             use_browser: "never".to_string(),

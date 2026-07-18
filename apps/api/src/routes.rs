@@ -501,6 +501,8 @@ async fn firecrawl_v2_crawl(
             max_depth: request.max_discovery_depth,
             include_subdomains: request.allow_subdomains,
             ignore_query_parameters: request.ignore_query_parameters,
+            ignore_robots_txt: request.ignore_robots_txt.unwrap_or(false),
+            robots_user_agent: request.robots_user_agent,
             timeout_seconds: scrape.timeout.div_ceil(1_000).max(1),
             wait_for_ms: scrape.wait_for_ms,
             use_browser: "auto".to_string(),
@@ -858,10 +860,6 @@ fn validate_firecrawl_crawl_defaults(request: &FirecrawlV2CrawlRequest) -> Resul
         (
             request.allow_external_links == Some(true),
             "allowExternalLinks=true",
-        ),
-        (
-            request.ignore_robots_txt == Some(true),
-            "ignoreRobotsTxt=true",
         ),
         (
             request.regex_on_full_url == Some(true),

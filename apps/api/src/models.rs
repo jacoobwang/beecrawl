@@ -168,6 +168,8 @@ pub struct FirecrawlV2CrawlRequest {
     pub allow_external_links: Option<bool>,
     #[serde(rename = "ignoreRobotsTxt")]
     pub ignore_robots_txt: Option<bool>,
+    #[serde(rename = "robotsUserAgent")]
+    pub robots_user_agent: Option<String>,
     #[serde(rename = "regexOnFullURL")]
     pub regex_on_full_url: Option<bool>,
     #[serde(rename = "zeroDataRetention")]
@@ -401,6 +403,10 @@ pub struct CrawlRequest {
         default = "default_ignore_query_parameters"
     )]
     pub ignore_query_parameters: bool,
+    #[serde(rename = "ignoreRobotsTxt", default)]
+    pub ignore_robots_txt: bool,
+    #[serde(rename = "robotsUserAgent")]
+    pub robots_user_agent: Option<String>,
     #[serde(default = "default_timeout_seconds")]
     pub timeout_seconds: u64,
     #[serde(rename = "waitFor", default)]

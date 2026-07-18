@@ -53,7 +53,10 @@ to deterministic relevant-passage selection when no provider is configured.
 Map returns the current link-object shape and uses Firecrawl's current defaults
 (`limit=5000`, `includeSubdomains=true`). Crawl defaults to `limit=10000`, does
 not remove query parameters unless requested, and treats an omitted discovery
-depth as effectively unbounded within the page limit. Search defaults to ten
+depth as effectively unbounded within the page limit. Crawl workers respect
+robots.txt by default using `FirecrawlAgent`; `robotsUserAgent` selects a custom
+matching group and request user agent, while `ignoreRobotsTxt=true` explicitly
+bypasses the policy. Search defaults to ten
 results and accepts timeouts from one second through five minutes.
 
 To smoke-test scrape, map, parse, search, crawl, batch, and error handling

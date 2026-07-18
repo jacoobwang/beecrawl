@@ -1,0 +1,3 @@
+ALTER TABLE crawl_jobs
+  ADD COLUMN IF NOT EXISTS ignore_robots_txt BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS robots_user_agent TEXT;
