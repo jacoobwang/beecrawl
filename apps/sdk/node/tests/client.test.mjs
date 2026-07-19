@@ -71,6 +71,35 @@ test("pollCrawl waits until a terminal state", async () => {
   assert.equal(result.status, "completed");
 });
 
+test("v2 workflow and browser methods use public routes", async () => {
+  const requests = [];
+  const client = new BeeCrawlClient({
+    baseUrl: "http://api.test",
+    fetch: async (url, init) => {
+      requests.push([init.method, new URL(url).pathname]);
+      return jsonResponse({ success: true });
+    },
+  });
+  await client.v2Scrape("https://example.com");
+  await client.createBrowserSession();
+  await client.executeBrowser("session", "document.title");
+  await client.createAgent("research", { maxCredits: 2 });
+  await client.createMonitor({ name: "site", url: "https://example.com" });
+  await client.updateMonitor("monitor", { enabled: false });
+  await client.runMonitor("monitor");
+  await client.monitorChecks("monitor", "check");
+  assert.deepEqual(requests, [
+    ["POST", "/v2/scrape"],
+    ["POST", "/v2/browser"],
+    ["POST", "/v2/browser/session/execute"],
+    ["POST", "/v2/agent"],
+    ["POST", "/v2/monitor"],
+    ["PATCH", "/v2/monitor/monitor"],
+    ["POST", "/v2/monitor/monitor/run"],
+    ["GET", "/v2/monitor/monitor/checks/check"],
+  ]);
+});
+
 function jsonResponse(payload, init = {}) {
   return new Response(JSON.stringify(payload), {
     status: init.status ?? 200,

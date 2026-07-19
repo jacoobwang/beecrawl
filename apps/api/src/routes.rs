@@ -63,6 +63,7 @@ pub fn app() -> Router {
 }
 
 fn app_with_crawls(crawls: CrawlStore) -> Router {
+    let limiter = crate::limits::RateLimiter::from_env();
     let state = AppState {
         client: reqwest::Client::new(),
         cache: CacheStore::from_env(),
@@ -74,6 +75,8 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
     };
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics))
+        .route("/openapi.json", get(openapi))
         .route("/scrape", post(scrape))
         .route("/crawl", post(crawl))
         .route("/crawl/:id", get(crawl_status).delete(cancel_crawl))
@@ -155,9 +158,33 @@ fn app_with_crawls(crawls: CrawlStore) -> Router {
         .route("/v2/monitor/:id/run", post(run_monitor))
         .route("/v2/monitor/:id/checks", get(monitor_checks))
         .route("/v2/monitor/:id/checks/:check_id", get(get_monitor_check))
+        .layer(axum::middleware::from_fn_with_state(
+            limiter,
+            crate::limits::middleware,
+        ))
+        .layer(axum::middleware::from_fn(crate::metrics::middleware))
         .layer(TraceLayer::new_for_http())
         .layer(DefaultBodyLimit::max(70 * 1024 * 1024))
         .with_state(Arc::new(state))
+}
+
+async fn metrics(State(state): State<Arc<AppState>>) -> Response {
+    let crawl_queue = state.crawls.queue_depth().await.unwrap_or(0);
+    let workflow_queue = state.workflows.queue_depth().await.unwrap_or(0);
+    (
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
+        crate::metrics::prometheus(crawl_queue, workflow_queue),
+    )
+        .into_response()
+}
+
+async fn openapi() -> Response {
+    let document: Value = serde_json::from_str(include_str!("../../../docs/openapi.json"))
+        .expect("docs/openapi.json must be valid JSON");
+    Json(document).into_response()
 }
 
 async fn create_agent(
@@ -2892,6 +2919,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn openapi_document_tracks_workflow_browser_and_parse_routes() {
+        let document: Value =
+            serde_json::from_str(include_str!("../../../docs/openapi.json")).unwrap();
+        let paths = document["paths"].as_object().unwrap();
+        for path in [
+            "/v2/scrape",
+            "/v2/parse/upload/{id}",
+            "/v2/crawl/{id}/errors",
+            "/v2/browser/{id}/execute",
+            "/v2/agent/{id}",
+            "/v2/monitor/{id}/checks/{checkId}",
+        ] {
+            assert!(paths.contains_key(path), "missing OpenAPI path {path}");
+        }
     }
 
     #[tokio::test]

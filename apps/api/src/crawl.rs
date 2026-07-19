@@ -579,6 +579,15 @@ impl CrawlStore {
         .await?;
         Ok(result.rows_affected())
     }
+
+    pub async fn queue_depth(&self) -> Result<u64, CrawlStoreError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM crawl_tasks WHERE status IN ('queued', 'active')",
+        )
+        .fetch_one(self.pool()?)
+        .await?;
+        Ok(count.max(0) as u64)
+    }
 }
 
 pub async fn run_worker_forever(store: CrawlStore) -> anyhow::Result<()> {

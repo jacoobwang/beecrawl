@@ -66,3 +66,35 @@ def test_poll_crawl_until_terminal_state():
         result = client.poll_crawl("job-1", interval=0, timeout=1)
 
     assert result["status"] == "completed"
+
+
+def test_v2_workflow_and_browser_methods_use_public_routes():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        return httpx.Response(200, json={"success": True})
+
+    with BeeCrawlClient(
+        base_url="http://api.test",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ) as client:
+        client.v2_scrape("https://example.com")
+        client.create_browser_session()
+        client.execute_browser("session", "document.title")
+        client.create_agent("research", maxCredits=2)
+        client.create_monitor({"name": "site", "url": "https://example.com"})
+        client.update_monitor("monitor", {"enabled": False})
+        client.run_monitor("monitor")
+        client.monitor_checks("monitor", "check")
+
+    assert requests == [
+        ("POST", "/v2/scrape"),
+        ("POST", "/v2/browser"),
+        ("POST", "/v2/browser/session/execute"),
+        ("POST", "/v2/agent"),
+        ("POST", "/v2/monitor"),
+        ("PATCH", "/v2/monitor/monitor"),
+        ("POST", "/v2/monitor/monitor/run"),
+        ("GET", "/v2/monitor/monitor/checks/check"),
+    ]

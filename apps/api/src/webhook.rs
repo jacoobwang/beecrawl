@@ -59,6 +59,9 @@ pub async fn deliver(
     error: Option<&str>,
 ) -> Result<(), WebhookError> {
     let config = webhook.config();
+    crate::web_extract::validate_public_url(&config.url)
+        .await
+        .map_err(|error| WebhookError::Invalid(error.to_string()))?;
     if !config.events.iter().any(|configured| configured == event) {
         return Ok(());
     }

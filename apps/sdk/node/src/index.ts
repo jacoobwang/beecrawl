@@ -94,6 +94,42 @@ export class BeeCrawlClient {
     return this.delete(`/batch/scrape/${jobId}`);
   }
 
+  v2Scrape(url: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/scrape", { ...options, url }); }
+  v2Map(url: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/map", { ...options, url }); }
+  v2Search(query: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/search", { ...options, query }); }
+  v2Extract(urls: string[], options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/extract", { ...options, urls }); }
+  v2ParseBase64(base64: string, filename: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/parse/base64", { ...options, base64, filename }); }
+  v2ParseReference(uploadRef: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/parse/reference", { ...options, uploadRef }); }
+  createParseUpload(filename: string): Promise<JsonObject> { return this.post("/v2/parse/upload-url", { filename }); }
+  uploadParseDocument(uploadRef: string, data: BodyInit): Promise<JsonObject> { return this.request("PUT", `/v2/parse/upload/${uploadRef}`, { body: data }); }
+  v2Parse(filename: string, data: Blob, options: RequestOptions = {}): Promise<JsonObject> {
+    const form = new FormData(); form.set("file", data, filename); form.set("options", JSON.stringify(options));
+    return this.request("POST", "/v2/parse", { body: form });
+  }
+  v2Crawl(url: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/crawl", { ...options, url }); }
+  v2BatchScrape(urls: string[], options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/batch/scrape", { ...options, urls }); }
+  v2JobStatus(kind: "crawl" | "batch/scrape", jobId: string, params: Record<string, string | number> = {}): Promise<JsonObject> { return this.get(`/v2/${kind}/${jobId}`, params); }
+  v2JobErrors(kind: "crawl" | "batch/scrape", jobId: string): Promise<JsonObject> { return this.get(`/v2/${kind}/${jobId}/errors`); }
+  cancelV2Job(kind: "crawl" | "batch/scrape", jobId: string): Promise<JsonObject> { return this.delete(`/v2/${kind}/${jobId}`); }
+  activeCrawls(): Promise<JsonObject> { return this.get("/v2/crawl/active"); }
+  createBrowserSession(options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/browser", options); }
+  browserSessions(): Promise<JsonObject> { return this.get("/v2/browser"); }
+  executeBrowser(sessionId: string, code: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post(`/v2/browser/${sessionId}/execute`, { ...options, code }); }
+  browserReplay(sessionId: string, pageId?: string): Promise<JsonObject> { return this.get(`/v2/browser/${sessionId}/replay${pageId ? `/${pageId}` : ""}`); }
+  deleteBrowserSession(sessionId: string): Promise<JsonObject> { return this.delete(`/v2/browser/${sessionId}`); }
+  interactWithScrape(scrapeId: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post(`/v2/scrape/${scrapeId}/interact`, options); }
+  deleteScrapeInteraction(scrapeId: string): Promise<JsonObject> { return this.delete(`/v2/scrape/${scrapeId}/interact`); }
+  createAgent(prompt: string, options: RequestOptions = {}): Promise<JsonObject> { return this.post("/v2/agent", { ...options, prompt }); }
+  getAgent(jobId: string): Promise<JsonObject> { return this.get(`/v2/agent/${jobId}`); }
+  cancelAgent(jobId: string): Promise<JsonObject> { return this.delete(`/v2/agent/${jobId}`); }
+  createMonitor(payload: RequestOptions): Promise<JsonObject> { return this.post("/v2/monitor", payload); }
+  listMonitors(): Promise<JsonObject> { return this.get("/v2/monitor"); }
+  getMonitor(monitorId: string): Promise<JsonObject> { return this.get(`/v2/monitor/${monitorId}`); }
+  updateMonitor(monitorId: string, payload: RequestOptions): Promise<JsonObject> { return this.patch(`/v2/monitor/${monitorId}`, payload); }
+  deleteMonitor(monitorId: string): Promise<JsonObject> { return this.delete(`/v2/monitor/${monitorId}`); }
+  runMonitor(monitorId: string): Promise<JsonObject> { return this.post(`/v2/monitor/${monitorId}/run`, {}); }
+  monitorChecks(monitorId: string, checkId?: string): Promise<JsonObject> { return this.get(`/v2/monitor/${monitorId}/checks${checkId ? `/${checkId}` : ""}`); }
+
   pollCrawl(jobId: string, options: PollOptions = {}): Promise<JsonObject> {
     return this.poll(() => this.crawlStatus(jobId, options), jobId, options);
   }
@@ -123,7 +159,11 @@ export class BeeCrawlClient {
     return this.request("POST", path, { body: JSON.stringify(payload) });
   }
 
-  private get(path: string, params: Record<string, string | number>): Promise<JsonObject> {
+  private patch(path: string, payload: JsonObject): Promise<JsonObject> {
+    return this.request("PATCH", path, { body: JSON.stringify(payload) });
+  }
+
+  private get(path: string, params: Record<string, string | number> = {}): Promise<JsonObject> {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       query.set(key, String(value));
@@ -137,7 +177,9 @@ export class BeeCrawlClient {
 
   private async request(method: string, path: string, init: RequestInit = {}): Promise<JsonObject> {
     const headers = new Headers(init.headers);
-    headers.set("Content-Type", "application/json");
+    if (!(init.body instanceof FormData) && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
     if (this.apiKey) {
       headers.set("X-Web-Extract-Api-Key", this.apiKey);
     }

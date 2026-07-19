@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import os
+from urllib.parse import urlparse
 from typing import Any
 
 from bee_engine.models import (
@@ -55,8 +57,9 @@ class BrowserPool:
             context = await browser.new_context(**_context_options(request))
             if _uses_stealth(request):
                 await context.add_init_script(STEALTH_INIT_SCRIPT)
-            if request.block_media:
-                await context.route("**/*", _route_handler)
+            await context.route(
+                "**/*", lambda route: _route_handler(route, block_media=request.block_media)
+            )
 
             page = await context.new_page()
             response = None
@@ -270,19 +273,31 @@ def _uses_stealth(request: BeeEngineScrapeRequest) -> bool:
     return bool(request.proxy and request.proxy.mode in {"stealth", "enhanced"})
 
 
-async def _route_handler(route) -> None:
+async def _route_handler(route, *, block_media: bool = True) -> None:
     request = route.request
-    host = ""
-    try:
-        host = request.url.split("/")[2]
-    except IndexError:
-        pass
-    if request.resource_type in BLOCKED_RESOURCE_TYPES or any(
-        x in host for x in BLOCKED_HOST_PARTS
+    host = urlparse(request.url).hostname or ""
+    if not await _public_host(host):
+        await route.abort("blockedbyclient")
+    elif (block_media and request.resource_type in BLOCKED_RESOURCE_TYPES) or any(
+        part in host for part in BLOCKED_HOST_PARTS
     ):
         await route.abort()
     else:
         await route.continue_()
+
+
+async def _public_host(host: str) -> bool:
+    if not host or host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        addresses = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            records = await asyncio.get_running_loop().getaddrinfo(host, None)
+        except OSError:
+            return False
+        addresses = list({ipaddress.ip_address(record[4][0]) for record in records})
+    return bool(addresses) and all(address.is_global for address in addresses)
 
 
 def _serialize_javascript_result(value: Any) -> dict[str, Any]:

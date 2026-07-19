@@ -33,3 +33,8 @@ async fn main() -> beecrawl_sdk::Result<()> {
     Ok(())
 }
 ```
+
+The `v2_*`, browser, Agent, and Monitor methods cover the complete public v2
+surface. Methods accept `serde_json::Value` options for forward compatibility
+and include multipart/reference parsing, job errors and cancellation, browser
+replay and handoff, plus monitor updates and checks.

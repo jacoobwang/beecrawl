@@ -50,3 +50,9 @@ result = client.poll_batch_scrape(batch["id"])
 ```
 
 An async client with the same API is available as `AsyncBeeCrawlClient`.
+
+The `v2_*`, browser, Agent, and Monitor methods cover the complete public v2
+surface, including document upload/reference flows, job errors and
+cancellation, replay, scrape interaction handoff, monitor updates and checks.
+Request option dictionaries are passed through so server additions remain
+forward-compatible.

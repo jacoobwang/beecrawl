@@ -97,8 +97,8 @@ Reference baseline: Firecrawl `cf5045315` (2026-07-17).
 
 ## Cross-cutting requirements
 
-- [ ] Maintain SSRF protection, including DNS resolution to private networks.
-- [ ] Add per-key rate limits and concurrency controls suitable for self-hosting.
-- [ ] Add metrics for API latency, engine selection, queues, and failures.
-- [ ] Keep Python, Node.js, and Rust SDKs aligned with every public endpoint.
-- [ ] Keep OpenAPI and self-hosting documentation current.
+- [x] Maintain SSRF protection, including DNS resolution to private networks.
+- [x] Add per-key rate limits and concurrency controls suitable for self-hosting.
+- [x] Add metrics for API latency, engine selection, queues, and failures.
+- [x] Keep Python, Node.js, and Rust SDKs aligned with every public endpoint.
+- [x] Keep OpenAPI and self-hosting documentation current.

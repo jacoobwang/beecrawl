@@ -8,7 +8,7 @@ description = "Rust HTTP SDK for the BeeCrawl API."
 readme = "README.md"
 
 [dependencies]
-reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate"] }
+reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "multipart"] }
 serde = "1.0"
 serde_json = "1.0"
 thiserror = "2.0"

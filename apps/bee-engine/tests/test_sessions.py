@@ -31,6 +31,9 @@ class FakeContext:
     async def new_page(self):
         return self.page
 
+    async def route(self, *_args):
+        return None
+
     async def close(self):
         self.closed = True
 

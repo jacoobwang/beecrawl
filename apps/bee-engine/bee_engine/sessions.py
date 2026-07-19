@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from bee_engine.browser import BrowserPool
+from bee_engine.browser import BrowserPool, _route_handler
 
 
 @dataclass
@@ -58,6 +58,7 @@ class BrowserSessionStore:
                 raise RuntimeError("browser session concurrency limit reached")
             browser = await self._browser_pool._ensure_browser()
             context = await browser.new_context(storage_state=storage_state)
+            await context.route("**/*", lambda route: _route_handler(route, block_media=False))
             page = await context.new_page()
             now = time.time()
             session = BrowserSession(

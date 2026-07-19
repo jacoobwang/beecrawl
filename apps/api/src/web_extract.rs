@@ -3,7 +3,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 
 use ego_tree::NodeRef;
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue, ACCEPT, LOCATION, USER_AGENT};
 use scraper::{ElementRef, Html, Node, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -72,6 +72,7 @@ pub async fn scrape_with_cache(
 ) -> Result<WebExtractScrapeResponse, WebExtractError> {
     let started = Instant::now();
     let normalized = normalize_url(&request.url)?;
+    validate_public_url(&normalized).await?;
     let key = cache_key(&normalized, &request);
     let max_age_seconds = scrape_cache_max_age_seconds();
     let requires_screenshot = request
@@ -138,7 +139,7 @@ pub async fn scrape_with_cache(
             format!("data:image/png;base64,{image}")
         }
     });
-    Ok(WebExtractScrapeResponse {
+    let response = WebExtractScrapeResponse {
         request_id: request_id("webext"),
         url: page.url,
         final_url: page.final_url,
@@ -160,7 +161,12 @@ pub async fn scrape_with_cache(
             fallback_reason: page.fallback_reason,
             proxy_used: page.proxy_used,
         },
-    })
+    };
+    crate::metrics::record_engine(
+        &response.metadata.provider,
+        response.metadata.fallback_reason.is_some(),
+    );
+    Ok(response)
 }
 
 fn cache_key(normalized_url: &str, request: &WebExtractScrapeRequest) -> String {
@@ -393,6 +399,9 @@ pub async fn robots_allows(
     user_agent: Option<&str>,
     timeout_seconds: u64,
 ) -> bool {
+    if validate_public_url(raw_url).await.is_err() {
+        return false;
+    }
     let Ok(url) = Url::parse(raw_url) else {
         return false;
     };
@@ -566,29 +575,50 @@ async fn fetch_page_with_tls(
             Err(error) => fingerprint_failure = Some(error.to_string()),
         }
     }
-    let configured_client;
-    let client = if skip_tls_verification || proxy.is_some() {
-        let mut builder =
-            reqwest::Client::builder().danger_accept_invalid_certs(skip_tls_verification);
-        if let Some(proxy) = proxy {
-            builder = builder.proxy(reqwest_proxy(proxy)?);
-        }
-        configured_client = builder
-            .build()
-            .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
-        &configured_client
-    } else {
-        client
-    };
-    let response = client
-        .get(&normalized)
-        .header(USER_AGENT, DEFAULT_USER_AGENT)
-        .header(ACCEPT, "text/html,application/xhtml+xml")
-        .headers(request_headers(headers)?)
-        .timeout(std::time::Duration::from_secs(timeout_seconds))
-        .send()
-        .await
+    let mut builder = reqwest::Client::builder()
+        .danger_accept_invalid_certs(skip_tls_verification)
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(proxy) = proxy {
+        builder = builder.proxy(reqwest_proxy(proxy)?);
+    }
+    let safe_client = builder
+        .build()
         .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
+    let request_headers = request_headers(headers)?;
+    let mut next_url = normalized.clone();
+    let mut redirect_count = 0;
+    let response = loop {
+        validate_public_url(&next_url).await?;
+        let response = safe_client
+            .get(&next_url)
+            .header(USER_AGENT, DEFAULT_USER_AGENT)
+            .header(ACCEPT, "text/html,application/xhtml+xml")
+            .headers(request_headers.clone())
+            .timeout(std::time::Duration::from_secs(timeout_seconds))
+            .send()
+            .await
+            .map_err(|err| WebExtractError::FetchFailed(err.to_string()))?;
+        if !response.status().is_redirection() {
+            break response;
+        }
+        if redirect_count >= 10 {
+            return Err(WebExtractError::FetchFailed(
+                "Too many redirects".to_string(),
+            ));
+        }
+        redirect_count += 1;
+        let location = response
+            .headers()
+            .get(LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or_else(|| {
+                WebExtractError::FetchFailed("Redirect has no Location header".to_string())
+            })?;
+        next_url = Url::parse(&next_url)
+            .and_then(|base| base.join(location))
+            .map_err(|error| WebExtractError::FetchFailed(format!("Invalid redirect: {error}")))?
+            .to_string();
+    };
     let status = response.status();
     if !status.is_success() {
         return Err(WebExtractError::FetchFailed(format!(
@@ -597,6 +627,7 @@ async fn fetch_page_with_tls(
         )));
     }
     let final_url = response.url().to_string();
+    validate_public_url(&final_url).await?;
     let html = response
         .text()
         .await
@@ -706,6 +737,7 @@ async fn fetch_page_with_fingerprint_service(
         .json()
         .await
         .map_err(|error| WebExtractError::FetchFailed(error.to_string()))?;
+    validate_public_url(&response.url).await?;
     if !(200..400).contains(&response.status) {
         return Err(WebExtractError::FetchFailed(format!(
             "TLS client fetch returned HTTP {}",
@@ -814,6 +846,7 @@ async fn render_page_at(
             return Err(WebExtractError::RenderFailed(error.to_string()));
         }
     }
+    validate_public_url(&rendered.url).await?;
     let actions = (!request.actions.is_empty()).then(|| action_response(&rendered));
     Ok(ProviderPage {
         url: request.url.clone(),
@@ -1264,19 +1297,66 @@ pub fn normalize_url(raw_url: &str) -> Result<String, WebExtractError> {
         ));
     }
     if let Ok(ip) = host.parse::<IpAddr>() {
-        let blocked = match ip {
-            IpAddr::V4(ip) => ip.is_private() || ip.is_loopback() || ip.is_link_local(),
-            IpAddr::V6(ip) => {
-                ip.is_loopback() || ip.is_unique_local() || ip.is_unicast_link_local()
-            }
-        };
-        if blocked {
+        if !is_public_ip(ip) {
             return Err(WebExtractError::BlockedByPolicy(
                 "Private network URLs are not allowed".to_string(),
             ));
         }
     }
     Ok(value)
+}
+
+pub async fn validate_public_url(raw_url: &str) -> Result<(), WebExtractError> {
+    let parsed =
+        Url::parse(raw_url).map_err(|error| WebExtractError::InvalidUrl(error.to_string()))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| WebExtractError::InvalidUrl("URL host is required".to_string()))?;
+    if host == "localhost" || host.ends_with(".localhost") {
+        return Err(WebExtractError::BlockedByPolicy(
+            "Localhost URLs are not allowed".to_string(),
+        ));
+    }
+    let port = parsed.port_or_known_default().unwrap_or(443);
+    let addresses = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|error| WebExtractError::FetchFailed(format!("DNS resolution failed: {error}")))?
+        .map(|address| address.ip())
+        .collect::<Vec<_>>();
+    if addresses.is_empty() || addresses.iter().copied().any(|ip| !is_public_ip(ip)) {
+        return Err(WebExtractError::BlockedByPolicy(
+            "DNS resolved to a private, reserved, or local network".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            !(ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_broadcast()
+                || ip.is_documentation()
+                || ip.is_unspecified()
+                || octets[0] == 0
+                || octets[0] >= 224
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19)))
+        }
+        IpAddr::V6(ip) => {
+            !(ip.is_loopback()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|mapped| !is_public_ip(mapped.into())))
+        }
+    }
 }
 
 fn select_root_html(document: &Html) -> Option<String> {
@@ -1909,6 +1989,24 @@ mod tests {
             normalize_url("http://127.0.0.1:8000"),
             Err(WebExtractError::BlockedByPolicy(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn dns_resolution_blocks_private_and_reserved_networks() {
+        for address in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "169.254.169.254",
+            "100.64.0.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "::1",
+            "fc00::1",
+        ] {
+            assert!(!is_public_ip(address.parse().unwrap()), "{address}");
+        }
+        assert!(is_public_ip("1.1.1.1".parse().unwrap()));
+        assert!(validate_public_url("http://localhost").await.is_err());
     }
 
     #[test]

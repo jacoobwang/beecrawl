@@ -55,3 +55,7 @@ const batch = await client.batchScrape([
 ]);
 const batchResult = await client.pollBatchScrape(batch.id);
 ```
+
+The `v2*`, browser, Agent, and Monitor methods cover the complete public v2
+surface, including document upload/reference flows, job errors and
+cancellation, replay, scrape interaction handoff, monitor updates and checks.

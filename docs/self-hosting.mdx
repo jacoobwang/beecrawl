@@ -22,6 +22,28 @@ default address is `http://127.0.0.1:8020`.
 For search, set `BEECRAWL_SEARXNG_ENDPOINT` to use SearXNG. Without it,
 BeeCrawl falls back to DuckDuckGo HTML search.
 
+All caller-controlled HTTP and browser targets are resolved before access.
+Localhost, private, link-local, carrier-grade NAT, benchmark, reserved, and
+multicast addresses are rejected; direct HTTP redirects are followed manually
+and revalidated at every hop. The Bee Engine applies the same DNS policy to
+page subresources and JavaScript-initiated navigation. This policy also covers
+notification webhook destinations.
+
+The API limits each credential to 120 requests per rolling minute and 16
+simultaneous requests by default. Configure
+`BEECRAWL_RATE_LIMIT_PER_MINUTE` and `BEECRAWL_MAX_CONCURRENCY_PER_KEY` for
+your deployment capacity. Rejected requests return HTTP 429 with
+`Retry-After`; health and metrics probes are exempt.
+
+`GET /metrics` exposes Prometheus text metrics for API request latency and
+failures, HTTP/browser/TLS engine selections and fallbacks, plus live crawl and
+workflow queue depths. No authentication credential or URL is included in
+metric labels, keeping label cardinality bounded.
+
+The complete OpenAPI 3.1 document is stored at `docs/openapi.json` and served
+by each API instance at `GET /openapi.json`. It includes legacy BeeCrawl,
+Firecrawl-compatible v2, browser, Agent, Monitor, health, and metrics routes.
+
 For model-backed extraction, configure an OpenAI-compatible provider:
 
 ```bash

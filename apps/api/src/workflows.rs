@@ -336,6 +336,15 @@ impl WorkflowStore {
         Ok(false)
     }
 
+    pub async fn queue_depth(&self) -> Result<u64, WorkflowError> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT (SELECT COUNT(*) FROM agent_jobs WHERE status IN ('queued', 'running')) + (SELECT COUNT(*) FROM monitor_checks WHERE status IN ('queued', 'running'))",
+        )
+        .fetch_one(self.pool()?)
+        .await?;
+        Ok(count.max(0) as u64)
+    }
+
     async fn process_agent(
         &self,
         client: &reqwest::Client,
