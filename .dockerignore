@@ -11,4 +11,5 @@ build
 *.pyo
 *.log
 infra
-docs
+docs/*
+!docs/openapi.json
