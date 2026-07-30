@@ -1,0 +1,5 @@
+{
+  "minimum_overall_score": 0.95,
+  "minimum_case_score": 0.85,
+  "maximum_request_failures": 0
+}

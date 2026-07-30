@@ -1,0 +1,61 @@
+{
+  "name": "scrape-quality",
+  "version": 1,
+  "cases": [
+    {
+      "name": "example-static",
+      "description": "Small stable HTML page fetched without browser rendering.",
+      "url": "https://example.com/",
+      "request": {
+        "formats": ["markdown", "links"],
+        "use_browser": "never",
+        "timeout_seconds": 20
+      },
+      "assertions": {
+        "min_markdown_chars": 100,
+        "required_text": ["Example Domain"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true,
+        "rendered": false,
+        "provider_in": ["http_static", "tls_client"]
+      }
+    },
+    {
+      "name": "rfc-9110-static",
+      "description": "Long standards document exercises headings, links, and document-order conversion.",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.html",
+      "request": {
+        "formats": ["markdown", "links"],
+        "use_browser": "never",
+        "timeout_seconds": 30
+      },
+      "assertions": {
+        "min_markdown_chars": 50000,
+        "required_text": ["HTTP Semantics", "Status Codes"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true,
+        "rendered": false,
+        "provider_in": ["http_static", "tls_client"]
+      }
+    },
+    {
+      "name": "quotes-javascript",
+      "description": "JavaScript-rendered training site verifies the Bee Engine path.",
+      "url": "https://quotes.toscrape.com/js/",
+      "request": {
+        "formats": ["markdown"],
+        "use_browser": "always",
+        "wait_for_ms": 500,
+        "timeout_seconds": 30
+      },
+      "assertions": {
+        "min_markdown_chars": 500,
+        "required_text": ["The world as we have created it"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true,
+        "rendered": true,
+        "provider_in": ["bee_engine"]
+      }
+    }
+  ]
+}

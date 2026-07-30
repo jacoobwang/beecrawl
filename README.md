@@ -203,6 +203,20 @@ For JSON-only callers, `POST /v2/parse/base64` accepts `base64` (or `data`),
 `filename`, and optional `options`. It accepts either bare Base64 or a
 `data:application/pdf;base64,...` value; decoded PDFs remain limited to 50 MB.
 
+## Scrape quality evaluations
+
+Deterministic tests and live scrape quality evaluations are separate. With the
+API and Bee Engine running locally, execute:
+
+```bash
+make scrape-eval
+```
+
+The evaluation suite exercises static, document-heavy, and JavaScript-rendered
+pages, compares observable output against checked-in quality gates, and writes
+JSON and Markdown reports. See [Scrape quality evaluations](docs/scrape-evals.md)
+for case authoring and the `#scrape-quality-eval` pull request workflow.
+
 ## Quick Start
 
 Start the Rust API:

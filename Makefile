@@ -3,8 +3,9 @@ HOST ?= 127.0.0.1
 PORT ?= 8000
 BEE_ENGINE_PORT ?= 8020
 UV ?= uv
+SCRAPE_EVAL_API_URL ?= http://$(HOST):$(PORT)
 
-.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install firecrawl-contract test lint rust-test rust-lint python-test python-lint
+.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install firecrawl-contract scrape-eval test lint rust-test rust-lint python-test python-lint
 
 install:
 	$(UV) sync --extra dev --extra browser
@@ -38,6 +39,9 @@ playwright-install:
 
 firecrawl-contract:
 	$(UV) run --with firecrawl-py==4.32.1 python scripts/firecrawl_v2_contract.py --api-url http://$(HOST):$(PORT)
+
+scrape-eval:
+	$(UV) run python -m evals.scrape_eval --api-url $(SCRAPE_EVAL_API_URL)
 
 python-test:
 	$(UV) run --extra dev --extra documents pytest -q
