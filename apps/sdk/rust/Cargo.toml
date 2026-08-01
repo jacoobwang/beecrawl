@@ -6,6 +6,11 @@ license.workspace = true
 authors.workspace = true
 description = "Rust HTTP SDK for the BeeCrawl API."
 readme = "README.md"
+repository = "https://github.com/jacoobwang/beecrawl"
+homepage = "https://beecrawl.dev/docs/sdk-rust"
+documentation = "https://docs.rs/beecrawl-sdk"
+keywords = ["beecrawl", "scraping", "crawler", "web", "http"]
+categories = ["api-bindings", "web-programming::http-client"]
 
 [dependencies]
 reqwest = { version = "0.12", features = ["json", "gzip", "brotli", "deflate", "multipart"] }

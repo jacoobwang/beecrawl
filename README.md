@@ -285,6 +285,7 @@ browser locally; browser rendering and workers stay on the BeeCrawl server.
 The Node.js SDK is available under `apps/sdk/node`:
 
 ```bash
+npm install beecrawl-sdk
 pnpm --filter beecrawl-sdk build
 ```
 
@@ -307,7 +308,17 @@ const page = await client.scrape("https://example.com", {
 ### Rust SDK
 
 An asynchronous Rust SDK is available under `apps/sdk/rust` and can be added
-as the `beecrawl-sdk` Cargo dependency.
+as the published `beecrawl-sdk` Cargo dependency:
+
+```toml
+[dependencies]
+beecrawl-sdk = "0.1"
+```
+
+Both SDKs are released together from an `sdk-v<version>` tag. The repository
+publishes the npm package to npmjs.com and the Rust crate to crates.io; the
+release workflow requires the `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` repository
+secrets.
 
 Then open:
 

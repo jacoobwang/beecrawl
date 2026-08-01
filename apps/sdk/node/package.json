@@ -2,6 +2,15 @@
   "name": "beecrawl-sdk",
   "version": "0.1.0",
   "description": "Node.js SDK for the BeeCrawl HTTP API.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jacoobwang/beecrawl.git",
+    "directory": "apps/sdk/node"
+  },
+  "homepage": "https://beecrawl.dev/docs/sdk-node",
+  "bugs": {
+    "url": "https://github.com/jacoobwang/beecrawl/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,7 +27,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "pnpm run build && node --test tests/*.test.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "keywords": [
     "beecrawl",
@@ -27,6 +37,9 @@
     "extract"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },

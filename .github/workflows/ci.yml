@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter beecrawl-sdk test
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p beecrawl-sdk --locked
+
   test:
     runs-on: ubuntu-latest
     services:
