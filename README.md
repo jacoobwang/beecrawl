@@ -316,9 +316,10 @@ beecrawl-sdk = "0.1"
 ```
 
 Both SDKs are released together from an `sdk-v<version>` tag. The repository
-publishes the npm package to npmjs.com and the Rust crate to crates.io; the
-release workflow requires the `NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` repository
-secrets.
+publishes the Python package to PyPI, the npm package to npmjs.com, and the
+Rust crate to crates.io. The release workflow verifies that all three package
+versions match the tag and requires the `PYPI_API_TOKEN`, `NPM_TOKEN`, and
+`CARGO_REGISTRY_TOKEN` repository secrets.
 
 Then open:
 

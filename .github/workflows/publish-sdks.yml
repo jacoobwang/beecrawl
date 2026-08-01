@@ -21,8 +21,10 @@ jobs:
         run: |
           set -euo pipefail
           node_version="$(node -p "require('./apps/sdk/node/package.json').version")"
+          python_version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/sdk/python/pyproject.toml", "rb"))["project"]["version"])')"
           rust_version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "beecrawl-sdk") | .version')"
           tag_version="${GITHUB_REF_NAME#sdk-v}"
+          test "$node_version" = "$python_version"
           test "$node_version" = "$rust_version"
           test "$tag_version" = "$node_version"
           echo "version=$node_version" >> "$GITHUB_OUTPUT"
@@ -57,3 +59,15 @@ jobs:
         run: cargo publish --manifest-path apps/sdk/rust/Cargo.toml --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  pypi:
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build apps/sdk/python
+      - name: Publish Python package
+        run: uv publish apps/sdk/python/dist/*
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
