@@ -1,6 +1,6 @@
 {
   "name": "beecrawl-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Node.js SDK for the BeeCrawl HTTP API.",
   "repository": {
     "type": "git",
