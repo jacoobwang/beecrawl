@@ -79,6 +79,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
+          prune-cache: false
       - name: Install evaluation runtime
         run: |
           uv sync --extra browser --locked
