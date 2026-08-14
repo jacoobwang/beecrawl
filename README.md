@@ -1,5 +1,7 @@
 # 🐝 BeeCrawl
 
+[简体中文](README-ZH.md)
+
 BeeCrawl is an open-source Firecrawl alternative for teams that want to
 self-host web scraping, crawling, search, and structured extraction.
 
