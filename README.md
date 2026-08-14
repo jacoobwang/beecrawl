@@ -305,6 +305,55 @@ const page = await client.scrape("https://example.com", {
 });
 ```
 
+### BeeCrawl CLI
+
+The TypeScript CLI is available under `apps/cli` and requires Node.js 18 or
+later. It uses the v2 API through the Node.js SDK:
+
+```bash
+pnpm install
+pnpm cli:build
+node apps/cli/dist/main.js --help
+```
+
+Authenticate with the Dashboard before making API requests. The CLI stores a
+named local profile containing the authorized API URL and key:
+
+```bash
+node apps/cli/dist/main.js login
+node apps/cli/dist/main.js profile current
+```
+
+For automation or local development, provide an API key through the environment
+instead of saving a profile:
+
+```bash
+BEECRAWL_API_KEY=your-key \
+BEECRAWL_BASE_URL=http://127.0.0.1:8000 \
+node apps/cli/dist/main.js scrape https://example.com
+```
+
+The available data commands are `search`, `scrape`, `map`, `extract`, `crawl`,
+and `agent`:
+
+```bash
+node apps/cli/dist/main.js search "web scraping" --limit 5
+node apps/cli/dist/main.js scrape https://example.com
+node apps/cli/dist/main.js map https://example.com --json
+node apps/cli/dist/main.js extract https://example.com \
+  --schema '{"title":"Page title"}' --json
+node apps/cli/dist/main.js crawl https://example.com --no-wait --json
+node apps/cli/dist/main.js agent "Summarize the main topics on this site" --json
+```
+
+`scrape` prints Markdown by default; the other data commands print JSON.
+Use `--json` or `--format json` for machine-readable output, and
+`--options-file` for nested API options. Crawl and Agent commands wait for a
+terminal result by default; use `start`, `status`, `cancel`, or `--no-wait` for
+detached workflows. `node apps/cli/dist/main.js init --agent codex` installs the
+bundled Agent Skill, and `profile list|use|remove` manages local credential
+profiles.
+
 ### Rust SDK
 
 An asynchronous Rust SDK is available under `apps/sdk/rust` and can be added
@@ -337,6 +386,7 @@ apps/bee-engine  Browser rendering service
 apps/sdk/node    Node.js SDK package
 apps/sdk/python  Python SDK package
 apps/sdk/rust    Rust SDK crate
+apps/cli         Node.js CLI package
 ```
 
 ## Roadmap
