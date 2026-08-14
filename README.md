@@ -391,16 +391,33 @@ apps/cli         Node.js CLI package
 
 ## Roadmap
 
-- HTTP static scraper
-- HTML to markdown-like text cleanup
-- Link and metadata extraction
-- Browser-rendered fallback
-- Keyword search with optional result scraping
-- Async crawl jobs
-- JSON schema extraction
-- Provider plugins
-- Docker image
-- Hosted cloud API
+### CLI and SDK ecosystem
+
+- Publish `beecrawl-cli` as a versioned npm package with a release workflow,
+  Dashboard authorization, and onboarding examples for Claude Code, Codex, and
+  OpenCode.
+- Extend the CLI to cover the remaining public v2 workflows: batch scraping,
+  document parsing, browser sessions and interactions, and monitors.
+- Keep the Python, Node.js, and Rust SDKs aligned with the complete public API
+  and publish matching versions together.
+
+### Scrape quality and operations
+
+- Expand scrape-quality evaluations with code-heavy, malformed-HTML, PDF, and
+  JavaScript-heavy fixtures, plus regression gates for Markdown and metadata.
+- Add conversion and engine metrics such as input/output size, latency,
+  empty-output rate, fallback reason, and provider selection.
+- Improve Bee Engine lifecycle management with explicit health, shutdown, and
+  capacity controls across multiple instances.
+
+### Self-hosted platform
+
+- Add pluggable Markdown conversion providers and configurable domain-specific
+  content cleanup policies.
+- Improve Docker Compose and Helm deployment ergonomics, including upgrades,
+  secret configuration, and independent worker/browser scaling.
+- Continue Firecrawl compatibility where it provides user value while keeping
+  unsupported hosted usage-account behavior explicit.
 
 ## License
 
