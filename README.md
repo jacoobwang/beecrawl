@@ -15,14 +15,6 @@ The API service is implemented in Rust. Browser rendering lives in the Python
 Bee Engine service because Playwright's Python runtime is still the friendlier
 browser automation boundary for this project.
 
-## Goals
-
-- Crawl web pages and return clean, useful content.
-- Extract page metadata, readable text, links, and structured fields.
-- Provide a small API surface that is easy to self-host.
-- Keep provider integrations modular so teams can choose their own browser,
-  proxy, storage, and LLM stack.
-
 ## API Preview
 
 ### `POST /scrape`

@@ -8,13 +8,6 @@ BeeCrawl 是一个开源的 Firecrawl 替代方案，面向希望自托管网页
 
 API 服务使用 Rust 实现。浏览器渲染位于 Python Bee Engine 服务中，因为 Playwright 的 Python 运行时目前更适合作为本项目的浏览器自动化边界。
 
-## 目标
-
-- 抓取网页并返回干净、有用的内容。
-- 提取页面元数据、可读文本、链接和结构化字段。
-- 提供小巧、易于自托管的 API。
-- 保持 Provider 集成模块化，让团队可以自行选择浏览器、代理、存储和 LLM 技术栈。
-
 ## API 预览
 
 ### `POST /scrape`
