@@ -35,6 +35,61 @@ make scrape-eval SCRAPE_EVAL_API_URL=https://api.example.com
 Reports are written to `artifacts/scrape-evals/` and are intentionally ignored
 by Git.
 
+## Reproducible provider benchmark
+
+The quality suite makes a release gate for BeeCrawl. The provider benchmark is
+separate: it repeats each case, records p50/p95/p99 latency, success rate,
+quality pass rate, errors, and successful pages per minute. It writes a JSON
+report, a Markdown summary, and raw `samples.jsonl` data under
+`artifacts/scrape-benchmark/`.
+
+The checked-in benchmark cases cover a small static page, a long document, and
+a JavaScript-rendered page. Requests are declared per provider in
+`evals/scrape-quality/benchmark.json` so that differences in API contracts are
+visible instead of hidden in adapter code.
+
+Run a local BeeCrawl-only benchmark with three warmups and twenty measured
+requests per case:
+
+```bash
+make scrape-benchmark
+```
+
+Run the same suite against BeeCrawl, Firecrawl, and Teracrawl. The base URLs
+must not include the provider-specific path; those paths are defined in the
+benchmark suite. Set `FIRECRAWL_API_KEY` before including Firecrawl.
+
+```bash
+make scrape-benchmark \
+  SCRAPE_BENCHMARK_PROVIDERS="--provider beecrawl=http://127.0.0.1:8000 --provider firecrawl=https://api.firecrawl.dev --provider teracrawl=http://127.0.0.1:8085"
+```
+
+The default `fresh` track disables caching where the API supports it. The
+`warm` track allows a two-day cache window:
+
+```bash
+uv run python -m evals.scrape_benchmark \
+  --provider beecrawl=http://127.0.0.1:8000 \
+  --provider firecrawl=https://api.firecrawl.dev \
+  --track warm --samples 20 --warmup 3 --concurrency 1 --region us-east
+```
+
+If the effective provider price is known, add it as USD per 1,000 attempted
+requests. The report will estimate cost per 1,000 successful pages, including
+failed attempts:
+
+```bash
+uv run python -m evals.scrape_benchmark \
+  --provider beecrawl=http://127.0.0.1:8000 \
+  --provider firecrawl=https://api.firecrawl.dev \
+  --price-per-1000-request firecrawl=0.83
+```
+
+Do not publish a provider ranking without publishing the suite version,
+request configuration, region, date, provider versions, and raw samples. Keep
+protected-site tests separate and only run them against targets where testing
+is authorized.
+
 ## Editing the suite
 
 - Cases: `evals/scrape-quality/cases.json`

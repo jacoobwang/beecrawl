@@ -4,8 +4,9 @@ PORT ?= 8000
 BEE_ENGINE_PORT ?= 8020
 UV ?= uv
 SCRAPE_EVAL_API_URL ?= http://$(HOST):$(PORT)
+SCRAPE_BENCHMARK_PROVIDERS ?= --provider beecrawl=$(SCRAPE_EVAL_API_URL)
 
-.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install firecrawl-contract scrape-eval test lint rust-test rust-lint python-test python-lint
+.PHONY: install db-up db-down api worker crawl-cleanup migration-new migrate-up bee-engine playwright-install firecrawl-contract scrape-eval scrape-benchmark test lint rust-test rust-lint python-test python-lint
 
 install:
 	$(UV) sync --extra dev --extra browser
@@ -42,6 +43,9 @@ firecrawl-contract:
 
 scrape-eval:
 	$(UV) run python -m evals.scrape_eval --api-url $(SCRAPE_EVAL_API_URL)
+
+scrape-benchmark:
+	$(UV) run python -m evals.scrape_benchmark $(SCRAPE_BENCHMARK_PROVIDERS)
 
 python-test:
 	$(UV) run --extra dev --extra documents pytest -q

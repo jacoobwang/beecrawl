@@ -219,6 +219,18 @@ pages, compares observable output against checked-in quality gates, and writes
 JSON and Markdown reports. See [Scrape quality evaluations](docs/scrape-evals.md)
 for case authoring and the `#scrape-quality-eval` pull request workflow.
 
+For a reproducible comparison against other providers, run the separate
+multi-sample benchmark. It reports success rate, content quality, p50/p95/p99
+latency, errors, and successful pages per minute:
+
+```bash
+make scrape-benchmark
+```
+
+The benchmark suite can compare BeeCrawl with Firecrawl and Teracrawl. See
+[Scrape quality evaluations](docs/scrape-evals.md) for provider configuration,
+fresh-cache and warm-cache tracks, and raw report output.
+
 ## Quick Start
 
 Start the Rust API:

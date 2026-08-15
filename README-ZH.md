@@ -171,6 +171,14 @@ make scrape-eval
 
 评估套件覆盖静态页面、文档密集型页面和 JavaScript 渲染页面，将可观测输出与仓库中的质量门槛进行比较，并生成 JSON 和 Markdown 报告。案例编写方式和 `#scrape-quality-eval` Pull Request 工作流请参阅[抓取质量评估文档](docs/scrape-evals.md)。
 
+如需与其他 Provider 做可复现对比，请运行独立的多轮 benchmark。它会统计成功率、内容质量、p50/p95/p99 延迟、错误数和每分钟成功处理页数：
+
+```bash
+make scrape-benchmark
+```
+
+该 benchmark 支持同时比较 BeeCrawl、Firecrawl 和 Teracrawl。Provider 配置、fresh-cache/warm-cache 两条测试线以及原始报告输出方式，请参阅[抓取质量评估文档](docs/scrape-evals.md)。
+
 ## 快速开始
 
 启动 Rust API：

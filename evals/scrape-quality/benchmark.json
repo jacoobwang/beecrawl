@@ -1,0 +1,127 @@
+{
+  "name": "beecrawl-web-extraction-benchmark",
+  "version": 1,
+  "providers": {
+    "beecrawl": {
+      "path": "/v2/scrape",
+      "api_key_env": "BEECRAWL_API_KEY",
+      "auth": "bearer"
+    },
+    "firecrawl": {
+      "path": "/v2/scrape",
+      "api_key_env": "FIRECRAWL_API_KEY",
+      "auth": "bearer"
+    },
+    "teracrawl": {
+      "path": "/scrape"
+    }
+  },
+  "tracks": {
+    "fresh": {
+      "description": "Force a fresh request where the provider supports cache controls.",
+      "request_overrides": {
+        "beecrawl": {
+          "storeInCache": false,
+          "maxAge": 0
+        },
+        "firecrawl": {
+          "storeInCache": false,
+          "maxAge": 0
+        },
+        "teracrawl": {}
+      }
+    },
+    "warm": {
+      "description": "Allow a two-day provider cache where supported.",
+      "request_overrides": {
+        "beecrawl": {
+          "storeInCache": true,
+          "maxAge": 172800000
+        },
+        "firecrawl": {
+          "storeInCache": true,
+          "maxAge": 172800000
+        },
+        "teracrawl": {}
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "example-static",
+      "category": "static",
+      "description": "Small stable HTML page.",
+      "url": "https://example.com/",
+      "requests": {
+        "beecrawl": {
+          "formats": ["markdown"],
+          "onlyMainContent": true,
+          "timeout": 30000
+        },
+        "firecrawl": {
+          "formats": ["markdown"],
+          "onlyMainContent": true,
+          "timeout": 30000
+        },
+        "teracrawl": {}
+      },
+      "assertions": {
+        "min_markdown_chars": 100,
+        "required_text": ["Example Domain"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true
+      }
+    },
+    {
+      "name": "rfc-9110-static",
+      "category": "long-document",
+      "description": "Long standards document with headings and links.",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.html",
+      "requests": {
+        "beecrawl": {
+          "formats": ["markdown"],
+          "onlyMainContent": true,
+          "timeout": 30000
+        },
+        "firecrawl": {
+          "formats": ["markdown"],
+          "onlyMainContent": true,
+          "timeout": 30000
+        },
+        "teracrawl": {}
+      },
+      "assertions": {
+        "min_markdown_chars": 50000,
+        "required_text": ["HTTP Semantics", "Status Codes"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true
+      }
+    },
+    {
+      "name": "quotes-javascript",
+      "category": "javascript",
+      "description": "JavaScript-rendered page.",
+      "url": "https://quotes.toscrape.com/js/",
+      "requests": {
+        "beecrawl": {
+          "formats": ["markdown"],
+          "waitFor": 500,
+          "timeout": 30000,
+          "fastMode": false
+        },
+        "firecrawl": {
+          "formats": ["markdown"],
+          "waitFor": 500,
+          "timeout": 30000
+        },
+        "teracrawl": {}
+      },
+      "assertions": {
+        "min_markdown_chars": 500,
+        "required_text": ["The world as we have created it"],
+        "forbidden_text": ["captcha", "verify you are human"],
+        "require_title": true
+      }
+    }
+  ]
+}
