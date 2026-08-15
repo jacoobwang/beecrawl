@@ -319,26 +319,6 @@ apps/sdk/rust    Rust SDK Crate
 apps/cli         Node.js CLI 包
 ```
 
-## Roadmap
-
-### CLI 和 SDK 生态
-
-- 将 `beecrawl-cli` 作为有版本管理的 npm 包发布，并增加发布工作流、Dashboard 授权，以及 Claude Code、Codex 和 OpenCode 的入门示例。
-- 扩展 CLI，覆盖剩余的公开 v2 工作流：批量抓取、文档解析、浏览器 Session 与交互，以及 Monitor。
-- 让 Python、Node.js 和 Rust SDK 与完整公开 API 保持一致，并继续以匹配的版本一起发布。
-
-### 抓取质量和运维
-
-- 增加代码密集型页面、HTML 异常页面、PDF 和 JavaScript 密集型页面评估案例，并为 Markdown 和元数据增加回归门槛。
-- 增加转换和引擎指标，例如输入/输出大小、延迟、空输出比例、回退原因和 Provider 选择。
-- 改进 Bee Engine 生命周期管理，为多实例部署提供明确的健康检查、关闭流程和容量控制。
-
-### 自托管平台
-
-- 增加可插拔的 Markdown 转换 Provider，以及可按域名配置的内容清理策略。
-- 改善 Docker Compose 和 Helm 的部署体验，包括升级、Secret 配置，以及 Worker/浏览器的独立扩缩容。
-- 在能为用户提供价值的范围内继续完善 Firecrawl 兼容性，同时明确不支持的托管 Usage-account 行为。
-
 ## 许可证
 
 MIT
