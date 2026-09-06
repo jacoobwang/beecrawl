@@ -11,6 +11,21 @@ schema extraction**. BeeCrawl is designed to stay small and hackable while leavi
 clear extension points for queue-backed crawls, LLM extraction,
 source-specific providers, proxy infrastructure, and hosted deployments.
 
+## Migrate from Firecrawl
+
+BeeCrawl's compatibility surface is designed to let supported Firecrawl v2
+workflows move by changing the API base URL and checking the documented
+behavior differences. Start with the [migration guide](docs/firecrawl-migration.mdx),
+then use the [compatibility matrix](docs/firecrawl-compatibility.mdx) to verify
+the routes and options used by your application.
+
+The contract is pinned to `firecrawl-py==4.32.1`. Run the official SDK smoke
+test against a local API with:
+
+```bash
+make firecrawl-contract
+```
+
 The API service is implemented in Rust. Browser rendering lives in the Python
 Bee Engine service because Playwright's Python runtime is still the friendlier
 browser automation boundary for this project.
@@ -159,6 +174,9 @@ pinned `firecrawl-py==4.32.1` contract:
 POST   /v2/scrape
 POST   /v2/parse
 POST   /v2/parse/base64
+POST   /v2/parse/upload-url
+PUT    /v2/parse/upload/{id}
+POST   /v2/parse/reference
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/active
@@ -172,6 +190,12 @@ DELETE /v2/batch/scrape/{id}
 GET    /v2/batch/scrape/{id}/errors
 POST   /v2/extract
 POST   /v2/search
+POST   /v2/browser
+GET    /v2/browser
+POST   /v2/browser/{id}/execute
+GET    /v2/browser/{id}/replay
+DELETE /v2/browser/{id}
+POST   /v2/scrape/{scrapeId}/interact
 ```
 
 Set the Firecrawl SDK `api_url` to the BeeCrawl base URL. These routes accept
@@ -182,16 +206,17 @@ default scrape options emitted by `firecrawl-py` 4.32.1 are accepted, including
 working `skipTlsVerification` support. Run `make firecrawl-contract` against a
 local API to verify the adapter through the official Python SDK.
 The v2 extract adapter supports multiple URLs and JSON Schema objects. Search
-supports Web results with optional scraping; requested news and image groups
-are returned empty until providers for those source types are added. Batch
-scrape, error listing, active crawl discovery, and paginated job status are
-part of the compatibility surface. Usage-account endpoints are not implemented.
+supports web, news, and image sources when the corresponding providers are
+configured. Batch scrape, error listing, active crawl discovery, browser
+sessions, and paginated job status are part of the compatibility surface.
+Hosted usage-account and billing endpoints are not implemented.
 
-`POST /v2/parse` accepts a local PDF as `multipart/form-data`: a required
-`file` field and an optional JSON `options` field. It returns Markdown with
-`metadata.numPages`, `metadata.totalPages`, and `metadata.sourceFile`. The
-current parser supports text PDFs in `fast` or `auto` mode; OCR and non-PDF
-document formats are intentionally rejected.
+`POST /v2/parse` accepts HTML/XHTML, PDF, DOC/DOCX, ODT, RTF, and XLS/XLSX
+uploads as `multipart/form-data`: a required `file` field and an optional JSON
+`options` field. PDF parsers support `fast`, `auto`, and `ocr` modes, with
+`auto` applying OCR to pages without usable embedded text. Responses include
+`metadata.numPages`, `metadata.totalPages`, and `metadata.sourceFile` when
+available.
 
 For JSON-only callers, `POST /v2/parse/base64` accepts `base64` (or `data`),
 `filename`, and optional `options`. It accepts either bare Base64 or a

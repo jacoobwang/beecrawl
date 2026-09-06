@@ -35,6 +35,32 @@ DELETE /v2/browser/{id}
 POST   /v2/scrape/{scrapeId}/interact
 ```
 
+## Compatibility matrix
+
+This is the short version of the current contract. It is validated against
+`firecrawl-py==4.32.1`; provider-backed features still depend on the services
+configured in your deployment.
+
+| Firecrawl workflow | BeeCrawl surface | Status | Notes |
+| --- | --- | --- | --- |
+| Scrape | `POST /v2/scrape` | Supported | Markdown, HTML, raw HTML, links, screenshots, JSON, summary, attributes, answers, highlights, browser actions, and explicit option validation. |
+| Parse | `POST /v2/parse`, `/v2/parse/base64`, `/v2/parse/reference` | Supported | Multipart, Base64, and pre-signed upload flows; PDF, HTML, Office, ODT, RTF, and spreadsheet parsing are supported by the document engine. |
+| Map | `POST /v2/map` | Supported | Returns Firecrawl link objects and applies the current map defaults. |
+| Crawl | `POST /v2/crawl` plus status, cancel, active, ongoing, and errors routes | Supported | Requires Postgres and a worker for asynchronous execution. Supports crawl policy, retries, webhooks, WebSockets, idempotency, and pagination. |
+| Batch scrape | `POST /v2/batch/scrape` plus status, cancel, and errors routes | Supported | Uses the shared Postgres queue and worker; independent URLs are not followed. |
+| Search | `POST /v2/search` | Supported | Web, news, and image sources are available when their providers are configured; optional result scraping is supported. |
+| Extract | `POST /v2/extract` | Supported | Multiple URLs and JSON Schema objects; deterministic extraction is the default, with an optional OpenAI-compatible provider. |
+| Browser sessions | `/v2/browser` and `/v2/interact` aliases | Supported | Persistent Playwright sessions, JavaScript execution, replay snapshots, TTLs, and API-key ownership isolation. Requires Bee Engine. |
+| Scrape-to-browser handoff | `POST /v2/scrape/{scrapeId}/interact` | Supported | Initializes a browser session from the scrape handoff snapshot. |
+| Agent and Monitor workflows | `/v2/agent` and `/v2/monitor` | BeeCrawl extension | Postgres-backed workflows that are available in BeeCrawl but are not required for the core Firecrawl SDK contract. |
+| Hosted usage, billing, and account APIs | — | Not implemented | BeeCrawl is self-hosted; configure deployment, provider, and usage observability in your own environment. |
+
+Status meanings: **Supported** means the route and documented semantics are
+implemented; **BeeCrawl extension** means the capability is available through a
+BeeCrawl route but is not part of the pinned compatibility baseline; **Not
+implemented** means callers should keep that integration on Firecrawl or replace
+it with a self-hosted equivalent.
+
 Set the Firecrawl SDK base URL to your BeeCrawl deployment. The compatibility
 routes accept Firecrawl camelCase fields and return a `success` envelope.
 

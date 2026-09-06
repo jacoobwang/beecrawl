@@ -25,6 +25,7 @@
         "pages": [
           "docs/introduction",
           "docs/quickstart",
+          "docs/firecrawl-migration",
           "docs/authentication",
           "docs/self-hosting"
         ]

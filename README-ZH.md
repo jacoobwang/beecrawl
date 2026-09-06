@@ -8,6 +8,19 @@ BeeCrawl 是一个开源的 Firecrawl 替代方案，面向希望自托管网页
 
 API 服务使用 Rust 实现。浏览器渲染位于 Python Bee Engine 服务中，因为 Playwright 的 Python 运行时目前更适合作为本项目的浏览器自动化边界。
 
+## 从 Firecrawl 迁移
+
+BeeCrawl 的兼容层面向受支持的 Firecrawl v2 工作流。通常只需要替换
+API 基础 URL，再按照文档确认行为差异即可。请先阅读[迁移指南](docs/firecrawl-migration.mdx)，
+再通过[兼容性矩阵](docs/firecrawl-compatibility.mdx)核对应用使用的路由和选项。
+
+兼容性契约固定为 `firecrawl-py==4.32.1`。启动本地 API 后，可运行官方 SDK
+冒烟测试：
+
+```bash
+make firecrawl-contract
+```
+
 ## API 预览
 
 ### `POST /scrape`
@@ -131,6 +144,9 @@ BEECRAWL_LLM_MODEL=gpt-4o-mini
 POST   /v2/scrape
 POST   /v2/parse
 POST   /v2/parse/base64
+POST   /v2/parse/upload-url
+PUT    /v2/parse/upload/{id}
+POST   /v2/parse/reference
 POST   /v2/map
 POST   /v2/crawl
 GET    /v2/crawl/active
@@ -144,13 +160,24 @@ DELETE /v2/batch/scrape/{id}
 GET    /v2/batch/scrape/{id}/errors
 POST   /v2/extract
 POST   /v2/search
+POST   /v2/browser
+GET    /v2/browser
+POST   /v2/browser/{id}/execute
+GET    /v2/browser/{id}/replay
+DELETE /v2/browser/{id}
+POST   /v2/scrape/{scrapeId}/interact
 ```
 
 将 Firecrawl SDK 的 `api_url` 设置为 BeeCrawl 的基础 URL。这些路由接受 Firecrawl 的 camelCase 请求字段，并返回包含 `success` 的响应封装。对于不支持的字段、格式选项和会改变行为的选项值，接口会返回 JSON `400`，而不是静默忽略。`firecrawl-py` 4.32.1 发出的默认抓取选项均可使用，包括可用的 `skipTlsVerification` 支持。可运行 `make firecrawl-contract`，通过官方 Python SDK 在本地 API 上验证适配器。
 
-v2 extract 适配器支持多个 URL 和 JSON Schema 对象。搜索支持 Web 结果及可选的结果抓取；在对应 Provider 加入前，请求的新闻和图片结果组会返回空数组。Batch scrape、错误列表、活跃 crawl 发现和分页任务状态都属于兼容范围。Usage-account 接口尚未实现。
+v2 extract 适配器支持多个 URL 和 JSON Schema 对象。配置对应 Provider 后，搜索支持
+Web、新闻和图片来源。Batch scrape、错误列表、活跃 crawl 发现、浏览器会话和分页任务状态
+都属于兼容范围。Hosted usage-account 和计费接口尚未实现。
 
-`POST /v2/parse` 通过 `multipart/form-data` 接收本地 PDF：必须提供 `file` 字段，可选提供 JSON 格式的 `options` 字段。接口返回 Markdown，以及 `metadata.numPages`、`metadata.totalPages` 和 `metadata.sourceFile`。当前解析器支持 `fast` 或 `auto` 模式下的文本型 PDF；OCR 和非 PDF 文档格式会被明确拒绝。
+`POST /v2/parse` 通过 `multipart/form-data` 接收 HTML/XHTML、PDF、DOC/DOCX、ODT、RTF
+和 XLS/XLSX 文件：必须提供 `file` 字段，可选提供 JSON 格式的 `options` 字段。PDF
+解析器支持 `fast`、`auto` 和 `ocr` 模式；`auto` 会对缺少可用嵌入文本的页面应用 OCR。
+响应会在适用时返回 `metadata.numPages`、`metadata.totalPages` 和 `metadata.sourceFile`。
 
 对于只使用 JSON 的调用方，`POST /v2/parse/base64` 接收 `base64`（或 `data`）、`filename` 和可选的 `options`。`base64` 可以是裸 Base64，也可以是 `data:application/pdf;base64,...` 格式；解码后的 PDF 大小仍限制为 50 MB。
 

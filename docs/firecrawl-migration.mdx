@@ -1,0 +1,149 @@
+---
+title: Migrate from Firecrawl
+description: Move a supported Firecrawl v2 integration to a self-hosted BeeCrawl deployment.
+---
+
+This guide covers the supported Firecrawl v2 contract pinned to
+`firecrawl-py==4.32.1`. BeeCrawl keeps the request and response shape familiar,
+but it is a self-hosted service: you own the API host, browser engine, worker,
+database, and provider configuration.
+
+<Note>
+  The compatibility matrix is the source of truth for route coverage and
+  intentional differences. Check it before migrating less common options.
+</Note>
+
+## 1. Run BeeCrawl
+
+For a synchronous scrape, start the API:
+
+```bash
+make api
+```
+
+Start Bee Engine as well when the workload needs browser rendering, screenshots,
+browser actions, or persistent sessions:
+
+```bash
+make install
+make playwright-install
+make bee-engine
+```
+
+Crawls, batch scrapes, Agent jobs, and Monitor jobs are asynchronous. Start
+Postgres, apply migrations, and run a worker for those workflows:
+
+```bash
+make db-up
+export BEECRAWL_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:55432/beecrawl
+make migrate-up
+make api
+make worker
+```
+
+Your local base URL is `http://127.0.0.1:8000`. For a deployed instance, use
+that deployment's API URL instead.
+
+## 2. Change the API base URL
+
+The smallest migration is to point the Firecrawl client at BeeCrawl. The
+official Python SDK can be smoke-tested with the same client initialization:
+
+```python
+from firecrawl import Firecrawl
+
+client = Firecrawl(
+    api_url="http://127.0.0.1:8000",
+    max_retries=0,
+)
+
+document = client.scrape(
+    "https://example.com",
+    formats=["markdown", "links"],
+)
+print(document.markdown)
+```
+
+For a raw HTTP client, keep the Firecrawl v2 path and camelCase fields:
+
+```bash
+curl http://127.0.0.1:8000/v2/scrape \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "url": "https://example.com",
+    "formats": ["markdown", "links"],
+    "onlyMainContent": true
+  }'
+```
+
+The compatibility response uses the Firecrawl `success` envelope. BeeCrawl
+rejects unsupported fields and behavior-changing values with a JSON `400`
+instead of silently accepting an option and ignoring it.
+
+## 3. Keep authentication consistent
+
+Authentication remains optional when the BeeCrawl API has no key configured.
+When it is enabled, send the key using one of the headers already accepted by
+the compatibility layer:
+
+```bash
+curl http://127.0.0.1:8000/v2/scrape \
+  -H 'X-Web-Extract-Api-Key: YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","formats":["markdown"]}'
+```
+
+Configure the server with either `BEECRAWL_WEB_EXTRACT_API_KEY` or
+`WEB_EXTRACT_API_KEY`. Keep the key in your existing Firecrawl client secret
+configuration; do not put it in source control.
+
+## Route mapping
+
+| Firecrawl operation | BeeCrawl route | Migration note |
+| --- | --- | --- |
+| Scrape | `POST /v2/scrape` | Keep `formats`, camelCase options, browser settings, and action requests. |
+| Parse | `POST /v2/parse` or `/v2/parse/base64` | Use multipart for files or Base64 for JSON-only clients; upload-reference flows are also available. |
+| Map | `POST /v2/map` | The response returns link objects with `url` and optional title/description. |
+| Crawl | `POST /v2/crawl` | Start a job, then poll the returned status URL; Postgres and a worker are required. |
+| Batch scrape | `POST /v2/batch/scrape` | Start and poll a job; submitted URLs are processed independently. |
+| Search | `POST /v2/search` | Configure SearXNG or the available fallback/provider set for your deployment. |
+| Extract | `POST /v2/extract` | Multiple URLs and JSON Schema objects are supported; deterministic extraction works without an LLM provider. |
+| Browser | `/v2/browser` and `/v2/interact` | Requires Bee Engine; session state is retained for the configured TTL. |
+
+See the [full compatibility matrix](/docs/firecrawl-compatibility) for status,
+limits, and provider-dependent behavior.
+
+## Behavior to verify before cutover
+
+- **Async infrastructure:** crawl and batch status are persisted in Postgres
+  and processed by a worker. A single API process is not enough for production
+  async workloads.
+- **Browser infrastructure:** browser rendering and browser sessions run in
+  Bee Engine. Install Chromium and configure `BEE_ENGINE_MAX_PAGES` for the
+  expected concurrency.
+- **Search providers:** search quality and source availability depend on the
+  configured SearXNG, DuckDuckGo, Bing, or image/news provider path.
+- **LLM extraction:** deterministic extraction is the default. Configure an
+  OpenAI-compatible provider only for model-backed JSON, answer, or highlight
+  enrichment.
+- **Hosted account APIs:** hosted Firecrawl usage, billing, and account routes
+  are intentionally outside BeeCrawl's self-hosted contract.
+- **Unsupported options:** values such as `mobile=true` and `fastMode=true`
+  are rejected explicitly when BeeCrawl cannot preserve their semantics.
+
+## Validate the migration
+
+With the API running, execute the pinned official SDK contract check:
+
+```bash
+make firecrawl-contract
+```
+
+For an asynchronous smoke test, start Postgres and the worker, then call
+`POST /v2/crawl` or `POST /v2/batch/scrape` and poll its returned status URL.
+For a browser smoke test, start Bee Engine and request `useBrowser: true` or a
+browser action through `POST /v2/scrape`.
+
+After the compatibility check passes, move application traffic to the BeeCrawl
+base URL and keep the [compatibility matrix](/docs/firecrawl-compatibility)
+alongside the deployment runbook.
